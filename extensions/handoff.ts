@@ -134,11 +134,14 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Build the final prompt with parent session reference
+			// Build the final prompt with user's goal first for easy identification
+			// Format: goal (first line for session preview) → skill → parent ref → context
 			let finalPrompt = result;
 			if (currentSessionFile) {
-				// Prepend parent session info and skill invocation so agent can query if needed
-				finalPrompt = `/skill:session-query\n\n**Parent session:** \`${currentSessionFile}\`\n\n${result}`;
+				finalPrompt = `${goal}\n\n/skill:session-query\n\n**Parent session:** \`${currentSessionFile}\`\n\n${result}`;
+			} else {
+				// Even without parent session, put goal first
+				finalPrompt = `${goal}\n\n${result}`;
 			}
 
 			// Immediately submit the handoff prompt to start the agent
