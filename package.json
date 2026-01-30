@@ -1,7 +1,21 @@
 {
   "name": "pi-amplike",
   "pi": {
-    "skills": ["./visit-webpage", "./web-search", "./skills/session-query"],
-    "extensions": ["./extensions"]
+    "skills": [
+      "./visit-webpage",
+      "./web-search",
+      "./skills/session-query"
+    ],
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^25.1.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.50.5",
+    "@mariozechner/pi-tui": "^0.50.5"
   }
 }

@@ -45,32 +45,30 @@ export default function (pi: ExtensionAPI) {
 		async execute(toolCallId, params, onUpdate, ctx, signal) {
 			const { sessionPath, question } = params;
 
+			// Helper for error returns
+			const errorResult = (text: string) => ({
+				content: [{ type: "text" as const, text }],
+				details: { error: true },
+			});
+
 			// Validate session path
 			if (!sessionPath.endsWith(".jsonl")) {
-				return {
-					content: [{ type: "text", text: `Error: Invalid session path. Expected a .jsonl file, got: ${sessionPath}` }],
-					isError: true,
-				};
+				return errorResult(`Error: Invalid session path. Expected a .jsonl file, got: ${sessionPath}`);
 			}
 
 			// Check if file exists
 			try {
 				const fs = await import("node:fs");
 				if (!fs.existsSync(sessionPath)) {
-					return {
-						content: [{ type: "text", text: `Error: Session file not found: ${sessionPath}` }],
-						isError: true,
-					};
+					return errorResult(`Error: Session file not found: ${sessionPath}`);
 				}
 			} catch (err) {
-				return {
-					content: [{ type: "text", text: `Error checking session file: ${err}` }],
-					isError: true,
-				};
+				return errorResult(`Error checking session file: ${err}`);
 			}
 
 			onUpdate?.({
 				content: [{ type: "text", text: "Loading session..." }],
+				details: { status: "loading" },
 			});
 
 			// Load the session
@@ -78,10 +76,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				sessionManager = SessionManager.open(sessionPath);
 			} catch (err) {
-				return {
-					content: [{ type: "text", text: `Error loading session: ${err}` }],
-					isError: true,
-				};
+				return errorResult(`Error loading session: ${err}`);
 			}
 
 			// Get conversation from the session
@@ -92,7 +87,8 @@ export default function (pi: ExtensionAPI) {
 
 			if (messages.length === 0) {
 				return {
-					content: [{ type: "text", text: "Session is empty - no messages found." }],
+					content: [{ type: "text" as const, text: "Session is empty - no messages found." }],
+					details: { empty: true },
 				};
 			}
 
@@ -103,13 +99,11 @@ export default function (pi: ExtensionAPI) {
 			// Use LLM to answer the question
 			onUpdate?.({
 				content: [{ type: "text", text: "Analyzing session..." }],
+				details: { status: "analyzing" },
 			});
 
 			if (!ctx.model) {
-				return {
-					content: [{ type: "text", text: "Error: No model available to analyze the session." }],
-					isError: true,
-				};
+				return errorResult("Error: No model available to analyze the session.");
 			}
 
 			try {
@@ -134,7 +128,8 @@ export default function (pi: ExtensionAPI) {
 
 				if (response.stopReason === "aborted") {
 					return {
-						content: [{ type: "text", text: "Query was cancelled." }],
+						content: [{ type: "text" as const, text: "Query was cancelled." }],
+						details: { cancelled: true },
 					};
 				}
 
@@ -144,7 +139,7 @@ export default function (pi: ExtensionAPI) {
 					.join("\n");
 
 				return {
-					content: [{ type: "text", text: answer }],
+					content: [{ type: "text" as const, text: answer }],
 					details: {
 						sessionPath,
 						question,
@@ -152,10 +147,7 @@ export default function (pi: ExtensionAPI) {
 					},
 				};
 			} catch (err) {
-				return {
-					content: [{ type: "text", text: `Error querying session: ${err}` }],
-					isError: true,
-				};
+				return errorResult(`Error querying session: ${err}`);
 			}
 		},
 	});
