@@ -124,14 +124,6 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Let user edit the generated prompt
-			const editedPrompt = await ctx.ui.editor("Edit handoff prompt", result);
-
-			if (editedPrompt === undefined) {
-				ctx.ui.notify("Cancelled", "info");
-				return;
-			}
-
 			// Create new session with parent tracking
 			const newSessionResult = await ctx.newSession({
 				parentSession: currentSessionFile,
@@ -142,9 +134,8 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Set the edited prompt in the main editor for submission
-			ctx.ui.setEditorText(editedPrompt);
-			ctx.ui.notify("Handoff ready. Submit when ready.", "info");
+			// Immediately submit the handoff prompt to start the agent
+			pi.sendUserMessage(result);
 		},
 	});
 }
