@@ -1,5 +1,7 @@
 {
+  "name": "pi-amplike",
   "pi": {
-      "skills": [ "./visit-webpages", "./web-search" ]
-   }
+    "skills": ["./visit-webpage", "./web-search"],
+    "extensions": ["./extensions"]
+  }
 }
