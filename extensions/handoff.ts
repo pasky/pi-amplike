@@ -134,8 +134,15 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
+			// Build the final prompt with parent session reference
+			let finalPrompt = result;
+			if (currentSessionFile) {
+				// Prepend parent session info and skill invocation so agent can query if needed
+				finalPrompt = `/skill:session-query\n\n**Parent session:** \`${currentSessionFile}\`\n\n${result}`;
+			}
+
 			// Immediately submit the handoff prompt to start the agent
-			pi.sendUserMessage(result);
+			pi.sendUserMessage(finalPrompt);
 		},
 	});
 }
