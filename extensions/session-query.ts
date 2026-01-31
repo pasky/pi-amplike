@@ -16,6 +16,7 @@ import {
 	serializeConversation,
 	type SessionEntry,
 } from "@mariozechner/pi-coding-agent";
+import { Container, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 const QUERY_SYSTEM_PROMPT = `You are a session context assistant. Given the conversation history from a pi coding session and a question, provide a concise answer based on the session contents.
@@ -30,9 +31,30 @@ Be concise and direct. If the information isn't in the session, say so.`;
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "session_query",
-		label: "Session Query",
+		label: (params) => `Session Query: ${params.question}`,
 		description:
 			"Query a previous pi session file for context, decisions, or information. Use when you need to look up what happened in a parent session or any other session.",
+		renderResult: (result, _options, theme) => {
+			const container = new Container();
+			
+			if (result.content && result.content[0]?.text) {
+				const text = result.content[0].text;
+				// Parse: **Query:** question\n\n---\n\nanswer
+				const match = text.match(/\*\*Query:\*\* (.+?)\n\n---\n\n([\s\S]+)/);
+				
+				if (match) {
+					const [, query, answer] = match;
+					container.addChild(new Text(theme.bold("Query: ") + theme.fg("accent", query), 0, 0));
+					container.addChild(new Spacer(1));
+					container.addChild(new Text(theme.fg("toolOutput", answer.trim()), 0, 0));
+				} else {
+					// Fallback for other formats (errors, etc)
+					container.addChild(new Text(theme.fg("toolOutput", text), 0, 0));
+				}
+			}
+			
+			return container;
+		},
 		parameters: Type.Object({
 			sessionPath: Type.String({
 				description: "Full path to the session file (e.g., /home/user/.pi/agent/sessions/.../session.jsonl)",
@@ -67,8 +89,13 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			onUpdate?.({
-				content: [{ type: "text", text: "Loading session..." }],
-				details: { status: "loading" },
+				content: [
+					{
+						type: "text",
+						text: `Query: ${question}`,
+					},
+				],
+				details: { status: "loading", question },
 			});
 
 			// Load the session
@@ -97,11 +124,6 @@ export default function (pi: ExtensionAPI) {
 			const conversationText = serializeConversation(llmMessages);
 
 			// Use LLM to answer the question
-			onUpdate?.({
-				content: [{ type: "text", text: "Analyzing session..." }],
-				details: { status: "analyzing" },
-			});
-
 			if (!ctx.model) {
 				return errorResult("Error: No model available to analyze the session.");
 			}
@@ -139,7 +161,7 @@ export default function (pi: ExtensionAPI) {
 					.join("\n");
 
 				return {
-					content: [{ type: "text" as const, text: answer }],
+					content: [{ type: "text" as const, text: `**Query:** ${question}\n\n---\n\n${answer}` }],
 					details: {
 						sessionPath,
 						question,
