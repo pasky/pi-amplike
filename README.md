@@ -6,8 +6,8 @@
 
 ### Session Management
 - **`/handoff <goal>`** - Create a new focused session based on the current one with context compacted based on a given goal
-- **`/sessions`** - Navigate session trees showing parent/child relationships from handoffs (and forks)
 - **`session_query`** tool - The agent in the handed off session automatically gets the ability to query the parent session for context, decisions, or code changes
+- **`/sessions`** - Navigate session trees showing parent/child relationships from handoffs (and forks) - NOTE: This is not fully functional and hopefully will soon be replaced by [threaded-mode in native `/resume`](https://github.com/badlogic/pi-mono/pull/1124)
 
 ### Web Access
 - **web-search** - Search the web via Jina Search API
