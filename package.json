@@ -2,8 +2,8 @@
   "name": "pi-amplike",
   "pi": {
     "skills": [
-      "./visit-webpage",
-      "./web-search",
+      "./skills/visit-webpage",
+      "./skills/web-search",
       "./skills/session-query"
     ],
     "extensions": [

@@ -72,13 +72,13 @@ session_query("/path/to/session.jsonl", "What approach was chosen?")
 ### Web Search
 
 ```bash
-~/.pi/packages/pi-amplike/web-search/search.py "python async tutorial"
+~/.pi/packages/pi-amplike/skills/web-search/search.py "python async tutorial"
 ```
 
 ### Visit Webpage
 
 ```bash
-~/.pi/packages/pi-amplike/visit-webpage/visit.py https://docs.example.com/api
+~/.pi/packages/pi-amplike/skills/visit-webpage/visit.py https://docs.example.com/api
 ```
 
 ## Components
@@ -89,8 +89,8 @@ session_query("/path/to/session.jsonl", "What approach was chosen?")
 | [sessions](extensions/sessions.ts) | Extension | `/sessions` command for tree navigation |
 | [session-query](extensions/session-query.ts) | Extension | `session_query` tool for the model |
 | [session-query](skills/session-query/) | Skill | Instructions for using the session_query tool |
-| [web-search](web-search/) | Skill | Web search via Jina API |
-| [visit-webpage](visit-webpage/) | Skill | Webpage content extraction |
+| [web-search](skills/web-search/) | Skill | Web search via Jina API |
+| [visit-webpage](skills/visit-webpage/) | Skill | Webpage content extraction |
 
 ## Why "AmpCode-like"?
 
