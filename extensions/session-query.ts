@@ -13,10 +13,11 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
 	SessionManager,
 	convertToLlm,
+	getMarkdownTheme,
 	serializeConversation,
 	type SessionEntry,
 } from "@mariozechner/pi-coding-agent";
-import { Container, Spacer, Text } from "@mariozechner/pi-tui";
+import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 const QUERY_SYSTEM_PROMPT = `You are a session context assistant. Given the conversation history from a pi coding session and a question, provide a concise answer based on the session contents.
@@ -46,7 +47,10 @@ export default function (pi: ExtensionAPI) {
 					const [, query, answer] = match;
 					container.addChild(new Text(theme.bold("Query: ") + theme.fg("accent", query), 0, 0));
 					container.addChild(new Spacer(1));
-					container.addChild(new Text(theme.fg("toolOutput", answer.trim()), 0, 0));
+					// Render the answer as markdown
+					container.addChild(new Markdown(answer.trim(), 0, 0, getMarkdownTheme(), {
+						color: (text: string) => theme.fg("toolOutput", text),
+					}));
 				} else {
 					// Fallback for other formats (errors, etc)
 					container.addChild(new Text(theme.fg("toolOutput", text), 0, 0));
