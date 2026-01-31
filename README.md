@@ -1,44 +1,108 @@
-# llmagent-skills
+# pi-amplike
 
-[Pi](https://github.com/badlogic/pi-mono) skills for web search and webpage content extraction, using Jina APIs.
+[Pi](https://github.com/badlogic/pi-mono) skills and extensions that give Pi similar capabilities to [Amp Code](https://ampcode.com/) out of the box.
 
-Extracted from [pasky/irssi-llmagent](https://github.com/pasky/irssi-llmagent) agentic tools.
+## Features
 
-## Skills
+### Session Management
+- **`/handoff <goal>`** - Create a new focused session based on the current one with context compacted based on a given goal
+- **`/sessions`** - Navigate session trees showing parent/child relationships from handoffs (and forks)
+- **`session_query`** tool - The agent in the handed off session automatically gets the ability to query the parent session for context, decisions, or code changes
 
-| Skill | Description |
-|-------|-------------|
-| [web-search](web-search/) | Search the web via Jina Search API |
-| [visit-webpage](visit-webpage/) | Extract webpage content as markdown, or download images |
+### Web Access
+- **web-search** - Search the web via Jina Search API
+- **visit-webpage** - Extract webpage content as markdown (using Jina API), or download images
+
+## Installation
+
+Clone and install as a Pi package:
+
+```bash
+git clone https://github.com/pasky/pi-amplike ~/.pi/packages/pi-amplike
+cd ~/.pi/packages/pi-amplike
+npm install
+```
 
 ## Setup
+
+Get a Jina API key for web skills (optional, works with rate limits without it):
 
 ```bash
 export JINA_API_KEY="your-key"  # Add to ~/.profile or ~/.zprofile
 ```
 
-Get a free API key at [jina.ai](https://jina.ai/).
+Get an API key at [jina.ai](https://jina.ai/). Even if you charge only the minimum credit, it's going to last approximately forever.
 
-## Installation
+## Usage
 
-Clone to your pi skills directory:
+### Session Handoff
 
-```bash
-git clone https://github.com/pasky/llmagent-skills ~/.pi/agent/skills/llmagent
+When your conversation gets long or you want to branch off to a focused task:
+
+```
+/handoff now implement this for teams as well
+/handoff execute phase one of the plan
+/handoff check other places that need this fix
 ```
 
-## Differences from irssi-llmagent
+This creates a new session with:
+- Summarized context from the current conversation
+- List of relevant files
+- Clear task description based on your goal
+- Reference to parent session (for later querying)
 
-The original implementations in irssi-llmagent have additional features:
+### Session Navigation
 
-- **Rate limiting** - Built-in rate limiter class with configurable calls/second
-- **Multiple search backends** - Supports Jina, Brave Search API, and DuckDuckGo (ddgs)
-- **Async execution** - Full async/await with aiohttp
-- **Image content blocks** - Returns base64-encoded images directly in LLM context
-- **Artifact store integration** - Direct filesystem access for local artifacts
-- **Progress callbacks** - Real-time progress updates during fetching
+View your session tree to understand context lineage:
 
-These skills are simplified standalone versions suitable for pi's skill system.
+```
+/sessions        # Sessions for current project
+/sessions --all  # All sessions across projects
+```
+
+### Querying Past Sessions
+
+The `session_query` tool lets the model look up information from previous sessions. It's automatically used when a handoff includes parent session reference, but can also be invoked directly:
+
+```
+session_query("/path/to/session.jsonl", "What files were modified?")
+session_query("/path/to/session.jsonl", "What approach was chosen?")
+```
+
+### Web Search
+
+```bash
+~/.pi/packages/pi-amplike/web-search/search.py "python async tutorial"
+```
+
+### Visit Webpage
+
+```bash
+~/.pi/packages/pi-amplike/visit-webpage/visit.py https://docs.example.com/api
+```
+
+## Components
+
+| Component | Type | Description |
+|-----------|------|-------------|
+| [handoff](extensions/handoff.ts) | Extension | `/handoff` command for context transfer |
+| [sessions](extensions/sessions.ts) | Extension | `/sessions` command for tree navigation |
+| [session-query](extensions/session-query.ts) | Extension | `session_query` tool for the model |
+| [session-query](skills/session-query/) | Skill | Instructions for using the session_query tool |
+| [web-search](web-search/) | Skill | Web search via Jina API |
+| [visit-webpage](visit-webpage/) | Skill | Webpage content extraction |
+
+## Why "AmpCode-like"?
+
+Amp Code has excellent session management built-in - you can branch conversations, reference parent context, and navigate session history. This package brings similar workflows to Pi:
+
+- **Context handoff** → Amp's conversation branching
+- **Session trees** → Amp's session history view  
+- **Session querying** → Amp's ability to reference parent context
+
+## Web Skills Origin
+
+The web-search and visit-webpage skills were extracted from [pasky/muaddib](https://github.com/pasky/muaddib). The original implementations have additional features (rate limiting, multiple backends, async execution) that aren't needed for Pi's skill system.
 
 ## License
 
