@@ -7,7 +7,7 @@
 ### Session Management
 - **`/handoff <goal>`** - Create a new focused session based on the current one with context compacted based on a given goal
 - **`session_query`** tool - The agent in the handed off session automatically gets the ability to query the parent session for context, decisions, or code changes
-- **`/sessions`** - Navigate session trees showing parent/child relationships from handoffs (and forks) - NOTE: This is not fully functional and hopefully will soon be replaced by [threaded-mode in native `/resume`](https://github.com/badlogic/pi-mono/pull/1124)
+- Use `/resume` to switch between and navigate handed-off sessions
 
 ### Web Access
 - **web-search** - Search the web via Jina Search API
@@ -53,12 +53,7 @@ This creates a new session with:
 
 ### Session Navigation
 
-View your session tree to understand context lineage:
-
-```
-/sessions        # Sessions for current project
-/sessions --all  # All sessions across projects
-```
+Use Pi's built-in `/resume` command to switch between sessions, including handed-off sessions. The handoff creates sessions with descriptive names that make them easy to find.
 
 ### Querying Past Sessions
 
@@ -86,7 +81,6 @@ session_query("/path/to/session.jsonl", "What approach was chosen?")
 | Component | Type | Description |
 |-----------|------|-------------|
 | [handoff](extensions/handoff.ts) | Extension | `/handoff` command for context transfer |
-| [sessions](extensions/sessions.ts) | Extension | `/sessions` command for tree navigation |
 | [session-query](extensions/session-query.ts) | Extension | `session_query` tool for the model |
 | [session-query](skills/session-query/) | Skill | Instructions for using the session_query tool |
 | [web-search](skills/web-search/) | Skill | Web search via Jina API |
@@ -97,7 +91,6 @@ session_query("/path/to/session.jsonl", "What approach was chosen?")
 Amp Code has excellent session management built-in - you can branch conversations, reference parent context, and navigate session history. This package brings similar workflows to Pi:
 
 - **Context handoff** → Amp's conversation branching
-- **Session trees** → Amp's session history view  
 - **Session querying** → Amp's ability to reference parent context
 
 ## Web Skills Origin
