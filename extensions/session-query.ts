@@ -68,7 +68,7 @@ export default function (pi: ExtensionAPI) {
 			}),
 		}),
 
-		async execute(toolCallId, params, onUpdate, ctx, signal) {
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const { sessionPath, question } = params;
 
 			// Helper for error returns
