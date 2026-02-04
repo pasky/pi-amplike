@@ -15,7 +15,17 @@
 
 ## Installation
 
-Clone and install as a Pi package:
+### Option A: Install from npm (recommended)
+
+```bash
+mkdir -p ~/.pi/packages
+cd ~/.pi/packages
+npm install pi-amplike
+```
+
+This creates `~/.pi/packages/node_modules/pi-amplike`. Pi will pick it up as a package automatically.
+
+### Option B: Install from git
 
 ```bash
 git clone https://github.com/pasky/pi-amplike ~/.pi/packages/pi-amplike

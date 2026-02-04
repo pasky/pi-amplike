@@ -1,0 +1,17 @@
+# never publish deps
+node_modules/
+
+# VCS
+.git/
+
+# OS cruft
+.DS_Store
+
+# python cache
+__pycache__/
+*.pyc
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
