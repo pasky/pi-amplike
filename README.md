@@ -5,8 +5,10 @@
 ## Features
 
 ### Session Management
-- **`/handoff <goal>`** - Create a new focused session based on the current one with context compacted based on a given goal
-- **`session_query`** tool - The agent in the handed off session automatically gets the ability to query the parent session for context, decisions, or code changes
+- **Handoff** - Create a new focused session with AI-generated context transfer:
+  - **`/handoff <goal>`** command - Manually create a handoff session
+  - **`handoff` tool** - The agent can invoke this when you explicitly request a handoff
+- **`session_query`** tool - The agent in handed-off sessions automatically gets the ability to query the parent session for context, decisions, or code changes
 - Use `/resume` to switch between and navigate handed-off sessions
 
 ### Web Access
@@ -47,19 +49,27 @@ Get an API key at [jina.ai](https://jina.ai/). Even if you charge only the minim
 
 ### Session Handoff
 
-When your conversation gets long or you want to branch off to a focused task:
+When your conversation gets long or you want to branch off to a focused task, you can use handoff in two ways:
 
+**Manual handoff via command:**
 ```
 /handoff now implement this for teams as well
 /handoff execute phase one of the plan
 /handoff check other places that need this fix
 ```
 
-This creates a new session with:
-- Summarized context from the current conversation
-- List of relevant files
+**Agent-invoked handoff:**
+The agent can also initiate a handoff when you explicitly ask for it:
+```
+"Please hand this off to a new session to implement the fix"
+"Create a handoff session to execute phase one"
+```
+
+Both methods create a new session with:
+- AI-generated summary of relevant context from the current conversation
+- List of relevant files that were discussed or modified
 - Clear task description based on your goal
-- Reference to parent session (for later querying)
+- Reference to parent session (accessible via `session_query` tool)
 
 ### Session Navigation
 
@@ -90,8 +100,8 @@ session_query("/path/to/session.jsonl", "What approach was chosen?")
 
 | Component | Type | Description |
 |-----------|------|-------------|
-| [handoff](extensions/handoff.ts) | Extension | `/handoff` command for context transfer |
-| [session-query](extensions/session-query.ts) | Extension | `session_query` tool for the model |
+| [handoff](extensions/handoff.ts) | Extension | `/handoff` command + `handoff` tool for AI-powered context transfer |
+| [session-query](extensions/session-query.ts) | Extension | `session_query` tool for querying parent sessions |
 | [session-query](skills/session-query/) | Skill | Instructions for using the session_query tool |
 | [web-search](skills/web-search/) | Skill | Web search via Jina API |
 | [visit-webpage](skills/visit-webpage/) | Skill | Webpage content extraction |

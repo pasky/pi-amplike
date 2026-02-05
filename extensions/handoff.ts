@@ -4,6 +4,10 @@
  * Instead of compacting (which is lossy), handoff extracts what matters
  * for your next task and creates a new session with a generated prompt.
  *
+ * Provides both:
+ * - /handoff command: user types `/handoff <goal>`
+ * - handoff tool: agent can call when user explicitly requests a handoff
+ *
  * Usage:
  *   /handoff now implement this for teams as well
  *   /handoff execute phase one of the plan
@@ -13,8 +17,9 @@
  */
 
 import { complete, type Message } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, SessionEntry } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@mariozechner/pi-coding-agent";
 import { BorderedLoader, convertToLlm, serializeConversation } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 
 const SYSTEM_PROMPT = `You are a context transfer assistant. Given a conversation history and the user's goal for a new thread, generate a focused prompt that:
 
@@ -38,114 +43,137 @@ Files involved:
 ## Task
 [Clear description of what to do next based on user's goal]`;
 
+/**
+ * Core handoff logic. Returns an error string on failure, or undefined on success.
+ */
+async function performHandoff(pi: ExtensionAPI, ctx: ExtensionContext, goal: string, fromTool = false): Promise<string | undefined> {
+	if (!ctx.hasUI) {
+		return "Handoff requires interactive mode.";
+	}
+
+	if (!ctx.model) {
+		return "No model selected.";
+	}
+
+	const branch = ctx.sessionManager.getBranch();
+	const messages = branch
+		.filter((entry): entry is SessionEntry & { type: "message" } => entry.type === "message")
+		.map((entry) => entry.message);
+
+	if (messages.length === 0) {
+		return "No conversation to hand off.";
+	}
+
+	const llmMessages = convertToLlm(messages);
+	const conversationText = serializeConversation(llmMessages);
+	const currentSessionFile = ctx.sessionManager.getSessionFile();
+
+	// Generate the handoff prompt with loader UI
+	const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+		const loader = new BorderedLoader(tui, theme, `Generating handoff prompt...`);
+		loader.onAbort = () => done(null);
+
+		const doGenerate = async () => {
+			const apiKey = await ctx.modelRegistry.getApiKey(ctx.model!);
+
+			const userMessage: Message = {
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: `## Conversation History\n\n${conversationText}\n\n## User's Goal for New Thread\n\n${goal}`,
+					},
+				],
+				timestamp: Date.now(),
+			};
+
+			const response = await complete(
+				ctx.model!,
+				{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+				{ apiKey, signal: loader.signal },
+			);
+
+			if (response.stopReason === "aborted") {
+				return null;
+			}
+
+			return response.content
+				.filter((c): c is { type: "text"; text: string } => c.type === "text")
+				.map((c) => c.text)
+				.join("\n");
+		};
+
+		doGenerate()
+			.then(done)
+			.catch((err) => {
+				console.error("Handoff generation failed:", err);
+				done(null);
+			});
+
+		return loader;
+	});
+
+	if (result === null) {
+		return "Handoff cancelled.";
+	}
+
+	// Create new session directly via sessionManager.
+	// ctx.newSession() is only available on ExtensionCommandContext (commands),
+	// but sessionManager.newSession() works at runtime from any context.
+	const sm = ctx.sessionManager as any;
+	sm.newSession({ parentSession: currentSessionFile });
+
+	// Build the final prompt with user's goal first for easy identification
+	let finalPrompt = result;
+	if (currentSessionFile) {
+		finalPrompt = `${goal}\n\n/skill:session-query\n\n**Parent session:** \`${currentSessionFile}\`\n\n${result}`;
+	} else {
+		finalPrompt = `${goal}\n\n${result}`;
+	}
+
+	// Submit the handoff prompt. From a tool, the agent is still streaming,
+	// so use followUp to queue it after the current turn completes.
+	if (fromTool) {
+		pi.sendUserMessage(finalPrompt, { deliverAs: "followUp" });
+	} else {
+		pi.sendUserMessage(finalPrompt);
+	}
+	return undefined;
+}
+
 export default function (pi: ExtensionAPI) {
+	// /handoff command
 	pi.registerCommand("handoff", {
 		description: "Transfer context to a new focused session",
 		handler: async (args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("handoff requires interactive mode", "error");
-				return;
-			}
-
-			if (!ctx.model) {
-				ctx.ui.notify("No model selected", "error");
-				return;
-			}
-
 			const goal = args.trim();
 			if (!goal) {
 				ctx.ui.notify("Usage: /handoff <goal for new thread>", "error");
 				return;
 			}
 
-			// Gather conversation context from current branch
-			const branch = ctx.sessionManager.getBranch();
-			const messages = branch
-				.filter((entry): entry is SessionEntry & { type: "message" } => entry.type === "message")
-				.map((entry) => entry.message);
-
-			if (messages.length === 0) {
-				ctx.ui.notify("No conversation to hand off", "error");
-				return;
+			const error = await performHandoff(pi, ctx, goal);
+			if (error) {
+				ctx.ui.notify(error, "error");
 			}
+		},
+	});
 
-			// Convert to LLM format and serialize
-			const llmMessages = convertToLlm(messages);
-			const conversationText = serializeConversation(llmMessages);
-			const currentSessionFile = ctx.sessionManager.getSessionFile();
+	// handoff tool (agent-callable)
+	pi.registerTool({
+		name: "handoff",
+		label: "Handoff",
+		description:
+			"Transfer context to a new focused session. ONLY use this when the user explicitly asks for a handoff. Provide a goal describing what the new session should focus on.",
+		parameters: Type.Object({
+			goal: Type.String({ description: "The goal/task for the new session" }),
+		}),
 
-			// Generate the handoff prompt with loader UI
-			const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-				const loader = new BorderedLoader(tui, theme, `Generating handoff prompt...`);
-				loader.onAbort = () => done(null);
-
-				const doGenerate = async () => {
-					const apiKey = await ctx.modelRegistry.getApiKey(ctx.model!);
-
-					const userMessage: Message = {
-						role: "user",
-						content: [
-							{
-								type: "text",
-								text: `## Conversation History\n\n${conversationText}\n\n## User's Goal for New Thread\n\n${goal}`,
-							},
-						],
-						timestamp: Date.now(),
-					};
-
-					const response = await complete(
-						ctx.model!,
-						{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-						{ apiKey, signal: loader.signal },
-					);
-
-					if (response.stopReason === "aborted") {
-						return null;
-					}
-
-					return response.content
-						.filter((c): c is { type: "text"; text: string } => c.type === "text")
-						.map((c) => c.text)
-						.join("\n");
-				};
-
-				doGenerate()
-					.then(done)
-					.catch((err) => {
-						console.error("Handoff generation failed:", err);
-						done(null);
-					});
-
-				return loader;
-			});
-
-			if (result === null) {
-				ctx.ui.notify("Cancelled", "info");
-				return;
-			}
-
-			// Create new session with parent tracking
-			const newSessionResult = await ctx.newSession({
-				parentSession: currentSessionFile,
-			});
-
-			if (newSessionResult.cancelled) {
-				ctx.ui.notify("New session cancelled", "info");
-				return;
-			}
-
-			// Build the final prompt with user's goal first for easy identification
-			// Format: goal (first line for session preview) → skill → parent ref → context
-			let finalPrompt = result;
-			if (currentSessionFile) {
-				finalPrompt = `${goal}\n\n/skill:session-query\n\n**Parent session:** \`${currentSessionFile}\`\n\n${result}`;
-			} else {
-				// Even without parent session, put goal first
-				finalPrompt = `${goal}\n\n${result}`;
-			}
-
-			// Immediately submit the handoff prompt to start the agent
-			pi.sendUserMessage(finalPrompt);
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const error = await performHandoff(pi, ctx, params.goal, true);
+			return {
+				content: [{ type: "text", text: error ?? "Handoff complete. New session started with the generated prompt." }],
+			};
 		},
 	});
 }
