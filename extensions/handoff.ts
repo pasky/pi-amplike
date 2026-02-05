@@ -117,12 +117,6 @@ async function performHandoff(pi: ExtensionAPI, ctx: ExtensionContext, goal: str
 		return "Handoff cancelled.";
 	}
 
-	// Create new session directly via sessionManager.
-	// ctx.newSession() is only available on ExtensionCommandContext (commands),
-	// but sessionManager.newSession() works at runtime from any context.
-	const sm = ctx.sessionManager as any;
-	sm.newSession({ parentSession: currentSessionFile });
-
 	// Build the final prompt with user's goal first for easy identification
 	let finalPrompt = result;
 	if (currentSessionFile) {
@@ -131,12 +125,21 @@ async function performHandoff(pi: ExtensionAPI, ctx: ExtensionContext, goal: str
 		finalPrompt = `${goal}\n\n${result}`;
 	}
 
-	// Submit the handoff prompt. From a tool, the agent is still streaming,
-	// so use followUp to queue it after the current turn completes.
-	if (fromTool) {
+	// Create new session and send the prompt.
+	// When called from a tool, we must defer the session switch until after
+	// the current turn completes (tool_result is recorded), otherwise the
+	// new session gets a tool_result without a corresponding tool_use block.
+	const sm = ctx.sessionManager as any;
+	const doSwitch = () => {
+		sm.newSession({ parentSession: currentSessionFile });
 		pi.sendUserMessage(finalPrompt, { deliverAs: "followUp" });
+	};
+
+	if (fromTool) {
+		// Defer to next tick so the tool_result is recorded in the OLD session first
+		setTimeout(doSwitch, 0);
 	} else {
-		pi.sendUserMessage(finalPrompt);
+		doSwitch();
 	}
 	return undefined;
 }
