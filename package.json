@@ -1,7 +1,7 @@
 {
   "name": "pi-amplike",
-  "version": "0.2.0",
-  "description": "Pi skills and extensions that provide Amp Code-like workflows (handoff, session query, web search, visit webpage).",
+  "version": "1.0.0",
+  "description": "Pi skills and extensions that provide Amp Code-like workflows (handoff + session query, mode selector, web access).",
   "license": "MIT",
   "homepage": "https://github.com/pasky/pi-amplike",
   "repository": {
@@ -48,7 +48,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.50.5",
-    "@mariozechner/pi-tui": "^0.50.5"
+    "@mariozechner/pi-coding-agent": "^0.52.0",
+    "@mariozechner/pi-tui": "^0.52.0"
   }
 }

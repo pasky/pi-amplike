@@ -11,9 +11,21 @@
 - **`session_query`** tool - The agent in handed-off sessions automatically gets the ability to query the parent session for context, decisions, or code changes
 - Use `/resume` to switch between and navigate handed-off sessions
 
+### Prompt Modes
+- **`/mode`** command with interactive mode selector/configuration UI (a mode is a model + thinking + color preset, active mode is shown in prompt editor border)
+- **Shortcuts**:
+  - **`Ctrl+Shift+S`** - mode selector
+  - **`Ctrl+Space`** - cycle modes
+
 ### Web Access
 - **web-search** - Search the web via Jina Search API
 - **visit-webpage** - Extract webpage content as markdown (using Jina API), or download images
+
+### Amp Skill Compatibility
+- Auto-loads Amp skill directories when present:
+  - `~/.config/agents/skills`
+  - `~/.config/amp/skills`
+  - `.agents/skills` (project-local)
 
 ## Installation
 
@@ -84,6 +96,20 @@ session_query("/path/to/session.jsonl", "What files were modified?")
 session_query("/path/to/session.jsonl", "What approach was chosen?")
 ```
 
+### Prompt Modes
+
+```text
+/mode              # mode picker
+/mode configure    # open mode configuration UI
+/mode <name>       # switch directly
+/mode store <name> # store current model+thinking into a mode
+```
+
+Notes:
+- The extension bootstraps with default modes are `rush`, `smart`, and `deep`; they somewhat mirror Amp defaults.
+- Modes config is loaded from `.pi/modes.json` (project), falling back to `~/.pi/agent/modes.json` (global).
+- Deleting all modes or setting `"modes": {}` in your modes file disables mode overlay behavior (shortcuts + editor mode border), while keeping `/mode` config UI available.
+
 ### Web Search
 
 ```bash
@@ -100,7 +126,9 @@ session_query("/path/to/session.jsonl", "What approach was chosen?")
 
 | Component | Type | Description |
 |-----------|------|-------------|
+| [amp-skills](extensions/amp-skills.ts) | Extension | Adds Amp-compatible skill discovery paths (`~/.config/agents/skills`, `~/.config/amp/skills`, `.agents/skills`) |
 | [handoff](extensions/handoff.ts) | Extension | `/handoff` command + `handoff` tool for AI-powered context transfer |
+| [modes](extensions/modes.ts) | Extension | Prompt mode manager with model/thinking/color presets, editor border overlay, and shortcuts |
 | [session-query](extensions/session-query.ts) | Extension | `session_query` tool for querying parent sessions |
 | [session-query](skills/session-query/) | Skill | Instructions for using the session_query tool |
 | [web-search](skills/web-search/) | Skill | Web search via Jina API |
