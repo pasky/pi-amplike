@@ -44,6 +44,32 @@ Files involved:
 ## Task
 [Clear description of what to do next based on user's goal]`;
 
+const HANDOFF_STATE_TYPE = "handoff-state";
+
+type HandoffOptions = {
+	mode?: string;
+	model?: string;
+};
+
+type PendingHandoff = {
+	prompt: string;
+	parentSession: string | undefined;
+	options?: HandoffOptions;
+};
+
+type PendingHandoffState = {
+	kind: "pending";
+	token: string;
+	prompt: string;
+	options?: HandoffOptions;
+};
+
+type HandoffState =
+	| PendingHandoffState
+	| { kind: "dispatched"; token: string }
+	| { kind: "submitted"; token: string }
+	| { kind: "failed"; token: string; error: string };
+
 /**
  * Generate a context summary by asking an LLM to distill the conversation
  * into a focused prompt for a new session.
@@ -87,16 +113,56 @@ async function generateContextSummary(
 		.join("\n");
 }
 
-type HandoffOptions = {
-	mode?: string;
-	model?: string;
-};
+function createHandoffToken(): string {
+	return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
-type PendingHandoff = {
-	prompt: string;
-	parentSession: string | undefined;
-	options?: HandoffOptions;
-};
+function isHandoffState(data: unknown): data is HandoffState {
+	if (!data || typeof data !== "object") return false;
+	const value = data as Partial<HandoffState>;
+	return typeof value.kind === "string" && typeof value.token === "string";
+}
+
+function getPendingHandoffState(ctx: ExtensionContext): PendingHandoffState | undefined {
+	const pending: PendingHandoffState[] = [];
+	const handled = new Set<string>();
+
+	for (const entry of ctx.sessionManager.getBranch()) {
+		if (entry.type !== "custom" || entry.customType !== HANDOFF_STATE_TYPE || !isHandoffState(entry.data)) {
+			continue;
+		}
+
+		if (entry.data.kind === "pending") {
+			pending.push(entry.data);
+		} else {
+			handled.add(entry.data.token);
+		}
+	}
+
+	for (let i = pending.length - 1; i >= 0; i -= 1) {
+		if (!handled.has(pending[i].token)) {
+			return pending[i];
+		}
+	}
+
+	return undefined;
+}
+
+async function startHandoffSession(ctx: ExtensionCommandContext, handoff: PendingHandoff): Promise<boolean> {
+	const token = createHandoffToken();
+	const newSessionResult = await ctx.newSession({
+		parentSession: handoff.parentSession,
+		setup: async (sessionManager) => {
+			sessionManager.appendCustomEntry(HANDOFF_STATE_TYPE, {
+				kind: "pending",
+				token,
+				prompt: handoff.prompt,
+				options: handoff.options,
+			});
+		},
+	});
+	return !newSessionResult.cancelled;
+}
 
 /**
  * Apply -mode and -model options after a session switch.
@@ -210,10 +276,12 @@ async function performHandoff(
 
 	if (!fromTool && "newSession" in ctx) {
 		const cmdCtx = ctx as ExtensionCommandContext;
-		const newSessionResult = await cmdCtx.newSession({ parentSession: currentSessionFile });
-		if (newSessionResult.cancelled) return;
-		await applyHandoffOptions(pi, ctx, options);
-		pi.sendUserMessage(finalPrompt);
+		const started = await startHandoffSession(cmdCtx, {
+			prompt: finalPrompt,
+			parentSession: currentSessionFile,
+			options,
+		});
+		if (!started) return;
 		return undefined;
 	}
 
@@ -231,9 +299,17 @@ async function performHandoff(
 
 export default function (pi: ExtensionAPI) {
 	const pendingHandoffs = new Map<string, PendingHandoff>();
+	let scheduledAutoSubmit: ReturnType<typeof setTimeout> | undefined;
+
+	const clearScheduledAutoSubmit = () => {
+		if (scheduledAutoSubmit !== undefined) {
+			clearTimeout(scheduledAutoSubmit);
+			scheduledAutoSubmit = undefined;
+		}
+	};
 
 	const queuePendingHandoff = (handoff: PendingHandoff) => {
-		const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+		const token = createHandoffToken();
 		pendingHandoffs.set(token, handoff);
 		try {
 			pi.sendUserMessage(`/handoff-apply ${token}`, { deliverAs: "followUp" });
@@ -242,6 +318,35 @@ export default function (pi: ExtensionAPI) {
 			throw error;
 		}
 	};
+
+	pi.on("session_shutdown", async () => {
+		clearScheduledAutoSubmit();
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		clearScheduledAutoSubmit();
+		const pending = getPendingHandoffState(ctx);
+		if (!pending) return;
+
+		scheduledAutoSubmit = setTimeout(() => {
+			scheduledAutoSubmit = undefined;
+			void (async () => {
+				try {
+					pi.appendEntry(HANDOFF_STATE_TYPE, { kind: "dispatched", token: pending.token });
+					await applyHandoffOptions(pi, ctx, pending.options);
+					await pi.sendUserMessage(pending.prompt);
+					pi.appendEntry(HANDOFF_STATE_TYPE, { kind: "submitted", token: pending.token });
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					pi.appendEntry(HANDOFF_STATE_TYPE, { kind: "failed", token: pending.token, error: message });
+					if (ctx.hasUI) {
+						ctx.ui.setEditorText(pending.prompt);
+						ctx.ui.notify(`Handoff auto-submit failed: ${message}. Prompt restored to editor.`, "warning");
+					}
+				}
+			})();
+		}, 0);
+	});
 
 	pi.registerCommand("handoff-apply", {
 		description: "Internal handoff follow-up command",
@@ -259,11 +364,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			pendingHandoffs.delete(token);
 
-			const { prompt, parentSession, options } = pending;
-			const newSessionResult = await ctx.newSession({ parentSession });
-			if (newSessionResult.cancelled) return;
-			await applyHandoffOptions(pi, ctx, options);
-			pi.sendUserMessage(prompt);
+			await startHandoffSession(ctx, pending);
 		},
 	});
 
