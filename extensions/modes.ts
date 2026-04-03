@@ -1170,12 +1170,6 @@ export default function (pi: ExtensionAPI) {
 		applyEditor(pi, ctx);
 	});
 
-	pi.on("session_switch", async (_event, ctx) => {
-		lastObservedModel = { provider: ctx.model?.provider, modelId: ctx.model?.id };
-		await ensureRuntime(pi, ctx);
-		await syncModeFromCurrentSelection(pi, ctx);
-		applyEditor(pi, ctx);
-	});
 
 	pi.on("model_select", async (event: any, ctx) => {
 		lastObservedModel = { provider: event.model.provider, modelId: event.model.id };
