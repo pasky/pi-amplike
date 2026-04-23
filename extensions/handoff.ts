@@ -28,9 +28,16 @@ import { loadModeSpec } from "./lib/mode-utils.js";
 // When cmdCtx.newSession() replaces the session (0.65+), the old extension
 // instance is disposed and a new one is loaded. globalThis survives the
 // replacement, so we use a process-global symbol to pass the handoff prompt
-// from the old instance to the new one's session_start handler.
+// plus any default model/thinking restore data from the old instance to the
+// new one's session_start handler.
+type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
+type HandoffSelection = {
+	provider: string;
+	modelId: string;
+	thinkingLevel: ThinkingLevel;
+};
 const HANDOFF_GLOBAL_KEY = Symbol.for("pi-amplike-handoff-pending");
-type PendingHandoffGlobal = { prompt: string; options?: HandoffOptions } | null;
+type PendingHandoffGlobal = { prompt: string; options?: HandoffOptions; restore?: HandoffSelection } | null;
 function getPendingHandoffGlobal(): PendingHandoffGlobal {
 	return (globalThis as any)[HANDOFF_GLOBAL_KEY] ?? null;
 }
@@ -111,6 +118,25 @@ type HandoffOptions = {
 	mode?: string;
 	model?: string;
 };
+
+async function restoreHandoffSelection(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	restore: HandoffSelection,
+): Promise<void> {
+	const model = ctx.modelRegistry.find(restore.provider, restore.modelId);
+	if (!model) {
+		if (ctx.hasUI) {
+			ctx.ui.notify(`Handoff: could not restore ${restore.provider}/${restore.modelId}; using current session model`, "warning");
+		}
+	} else {
+		const ok = await pi.setModel(model);
+		if (!ok && ctx.hasUI) {
+			ctx.ui.notify(`Handoff: no API key for ${restore.provider}/${restore.modelId}; using current session model`, "warning");
+		}
+	}
+	pi.setThinkingLevel(restore.thinkingLevel);
+}
 
 /**
  * Apply -mode and -model options after a session switch.
@@ -230,10 +256,17 @@ async function performHandoff(
 		// Command path: full session replacement via ctx.newSession().
 		// After newSession(), the runtime tears down this session and creates a
 		// new one with fresh extensions. Our `pi` reference becomes stale, so we
-		// stash the prompt on globalThis for the new instance's session_start
-		// handler to pick up and send.
+		// stash the prompt plus any default model/thinking restore data on
+		// globalThis for the new instance's session_start handler.
 		const cmdCtx = ctx as ExtensionCommandContext;
-		setPendingHandoffGlobal({ prompt: finalPrompt, options });
+		const restore = !options?.mode && !options?.model && ctx.model
+			? {
+				provider: ctx.model.provider,
+				modelId: ctx.model.id,
+				thinkingLevel: pi.getThinkingLevel(),
+			}
+			: undefined;
+		setPendingHandoffGlobal({ prompt: finalPrompt, options, restore });
 		const newSessionResult = await cmdCtx.newSession({ parentSession: currentSessionFile });
 		if (newSessionResult.cancelled) {
 			setPendingHandoffGlobal(null);
@@ -372,11 +405,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (event, ctx) => {
 		handoffTimestamp = null;
 
-		// Pick up command-path handoff prompt stashed by the old extension instance
+		// Pick up command-path handoff data stashed by the old extension instance
 		if (event.reason === "new") {
 			const pending = getPendingHandoffGlobal();
 			if (pending) {
 				setPendingHandoffGlobal(null);
+				if (pending.restore) {
+					await restoreHandoffSelection(pi, ctx, pending.restore);
+				}
 				await applyHandoffOptions(pi, ctx, pending.options);
 				pi.sendUserMessage(pending.prompt);
 			}

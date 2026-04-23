@@ -88,6 +88,7 @@ When your conversation gets long or you want to branch off to a focused task, yo
 Optional flags (can be combined):
 - `-mode <name>` — start the new session in a named mode (e.g. `rush`, `smart`, `deep`)
 - `-model <provider/id>` — start the new session with a specific model (e.g. `anthropic/claude-haiku-4-5`)
+Without these flags, `/handoff` keeps the current model and thinking level in the new session.
 
 The handoff summary is always generated with the *current* session's model before switching.
 
