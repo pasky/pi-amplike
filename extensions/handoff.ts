@@ -402,21 +402,28 @@ export default function (pi: ExtensionAPI) {
 	// Also handles the command-path handoff: after cmdCtx.newSession() replaces
 	// the runtime, this NEW extension instance's session_start fires. We check
 	// globalThis for a pending prompt and send it.
-	pi.on("session_start", async (event, ctx) => {
+	pi.on("session_start", (event, ctx) => {
 		handoffTimestamp = null;
 
 		// Pick up command-path handoff data stashed by the old extension instance
-		if (event.reason === "new") {
-			const pending = getPendingHandoffGlobal();
-			if (pending) {
-				setPendingHandoffGlobal(null);
-				if (pending.restore) {
-					await restoreHandoffSelection(pi, ctx, pending.restore);
-				}
-				await applyHandoffOptions(pi, ctx, pending.options);
-				pi.sendUserMessage(pending.prompt);
+		if (event.reason !== "new") return;
+
+		const pending = getPendingHandoffGlobal();
+		if (!pending) return;
+
+		setPendingHandoffGlobal(null);
+
+		// Defer to a macrotask so the interactive mode can finish rebinding the
+		// replacement session and subscribe to its agent events before the handoff
+		// prompt starts a new turn. Without this, agent_start can fire before the
+		// UI subscribes, so the loading/working indicator is not shown after /handoff.
+		setTimeout(async () => {
+			if (pending.restore) {
+				await restoreHandoffSelection(pi, ctx, pending.restore);
 			}
-		}
+			await applyHandoffOptions(pi, ctx, pending.options);
+			pi.sendUserMessage(pending.prompt);
+		}, 0);
 	});
 
 	// /handoff command
