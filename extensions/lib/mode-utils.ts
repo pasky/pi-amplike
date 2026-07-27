@@ -58,10 +58,24 @@ export async function loadModeSpec(
 	return undefined;
 }
 
+export interface ResolvedModeAndThinking {
+	model: any;
+	thinkingLevel: string;
+	/**
+	 * The requested overrides that actually took effect. Callers surface these in
+	 * the UI: an unknown mode / unavailable model silently falls back to the
+	 * parent's model, so echoing the raw request would be a lie.
+	 */
+	applied: { mode?: string; model?: string };
+	/** Requested overrides that could not be resolved and were ignored. */
+	unresolved: string[];
+}
+
 /**
  * Resolve a target model and thinking level from mode/model parameters.
  * Returns the resolved model and thinking level, using defaults from the
- * current context if not overridden.
+ * current context if not overridden, plus which overrides applied (see
+ * ResolvedModeAndThinking) so callers can report honestly.
  */
 export async function resolveModelAndThinking(
 	cwd: string,
@@ -69,31 +83,45 @@ export async function resolveModelAndThinking(
 	currentModel: any,
 	currentThinkingLevel: string,
 	params: { mode?: string; model?: string },
-): Promise<{ model: any; thinkingLevel: string }> {
+): Promise<ResolvedModeAndThinking> {
 	let targetModel = currentModel;
 	let targetThinkingLevel = currentThinkingLevel;
+	const applied: { mode?: string; model?: string } = {};
+	const unresolved: string[] = [];
 
 	if (params.mode) {
 		const spec = await loadModeSpec(cwd, params.mode);
+		// A mode counts as applied if it changed anything (model and/or thinking).
+		let modeApplied = false;
 		if (spec) {
 			if (spec.provider && spec.modelId) {
 				const m = modelRegistry.find(spec.provider, spec.modelId);
-				if (m) targetModel = m;
+				if (m) {
+					targetModel = m;
+					modeApplied = true;
+				}
 			}
-			if (spec.thinkingLevel) targetThinkingLevel = spec.thinkingLevel;
+			if (spec.thinkingLevel) {
+				targetThinkingLevel = spec.thinkingLevel;
+				modeApplied = true;
+			}
 		}
+		if (modeApplied) applied.mode = params.mode;
+		else unresolved.push(`mode:${params.mode}`);
 	}
 
 	if (params.model) {
 		const slashIdx = params.model.indexOf("/");
-		if (slashIdx > 0) {
-			const m = modelRegistry.find(
-				params.model.slice(0, slashIdx),
-				params.model.slice(slashIdx + 1),
-			);
-			if (m) targetModel = m;
+		const m = slashIdx > 0
+			? modelRegistry.find(params.model.slice(0, slashIdx), params.model.slice(slashIdx + 1))
+			: undefined;
+		if (m) {
+			targetModel = m;
+			applied.model = params.model;
+		} else {
+			unresolved.push(`model:${params.model}`);
 		}
 	}
 
-	return { model: targetModel, thinkingLevel: targetThinkingLevel };
+	return { model: targetModel, thinkingLevel: targetThinkingLevel, applied, unresolved };
 }

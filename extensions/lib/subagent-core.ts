@@ -33,16 +33,23 @@ export const MINIBOX_LINES = 10;
 // the whole screen and flicker badly next to concurrent agent output. The full
 // task is always preserved in the session — this only clamps what's displayed.
 export const TASK_DISPLAY_LINES = 10;
+// Expanded/finished views (transcript, btw result) are not live-updating, so
+// flicker isn't a concern there; they get a much larger budget so "Ctrl+O to
+// expand" still reveals essentially the whole input.
+export const TASK_DISPLAY_LINES_EXPANDED = 60;
 
 /**
- * Clamp a task/input prompt to at most `maxLines` lines for display, appending a
- * "… +N more lines" marker when truncated. Used everywhere the raw task is shown
- * so an oversized input (e.g. a /review commit log) can't blow up the view.
+ * Clamp a task/input prompt to at most `maxLines` TOTAL displayed lines (the
+ * "… +N more lines" marker is counted against the budget, so the result never
+ * exceeds it). Trailing blank lines are dropped first so they don't get reported
+ * as omitted content. Used everywhere the raw task is shown so an oversized
+ * input (e.g. a /review commit log) can't blow up the view.
  */
 export function clampTaskForDisplay(task: string, maxLines = TASK_DISPLAY_LINES): string {
-	const lines = task.split("\n");
-	if (lines.length <= maxLines) return task;
-	return `${lines.slice(0, maxLines).join("\n")}\n… +${lines.length - maxLines} more lines`;
+	const lines = task.replace(/\s+$/, "").split("\n");
+	if (lines.length <= maxLines) return lines.join("\n");
+	const kept = Math.max(1, maxLines - 1); // reserve one line for the marker
+	return `${lines.slice(0, kept).join("\n")}\n… +${lines.length - kept} more lines`;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,12 +99,33 @@ export type DisplayItem =
 // Usage helpers
 // ---------------------------------------------------------------------------
 
+/** Hard cap per badge component, so a bogus request can't blow up the header. */
+const BADGE_PART_MAX = 40;
+
+function sanitizeBadgePart(s: string): string {
+	const flat = s.replace(/\s+/g, " ").trim();
+	return flat.length > BADGE_PART_MAX ? `${flat.slice(0, BADGE_PART_MAX - 1)}…` : flat;
+}
+
 /**
- * Build the mode/model badge shown next to a subagent in the UI. Returns
- * undefined when neither was explicitly requested (so nothing is rendered).
+ * Build the mode/model badge shown next to a subagent in the UI. `mode`/`model`
+ * must be the overrides that ACTUALLY applied (see resolveModelAndThinking's
+ * `applied`); `unresolved` requests are shown separately as ignored, so the
+ * badge never claims a model the subagent isn't running. Returns undefined when
+ * nothing was explicitly requested (so nothing is rendered).
  */
-export function formatAgentBadge(opts: { mode?: string; model?: string }): string | undefined {
-	const parts = [opts.mode, opts.model].filter((s): s is string => !!s && !!s.trim());
+export function formatAgentBadge(opts: {
+	mode?: string;
+	model?: string;
+	unresolved?: string[];
+}): string | undefined {
+	const parts = [opts.mode, opts.model]
+		.filter((s): s is string => !!s && !!s.trim())
+		.map(sanitizeBadgePart);
+	const ignored = (opts.unresolved ?? [])
+		.filter((s) => !!s && !!s.trim())
+		.map(sanitizeBadgePart);
+	if (ignored.length) parts.push(`⚠ ignored ${ignored.join(" ")}`);
 	return parts.length ? parts.join(" ") : undefined;
 }
 
@@ -287,7 +315,7 @@ export function renderResultExpanded(
 	const badge = r.agentBadge ? `${theme.fg("accent", `[${r.agentBadge}]`)} ` : "";
 	container.addChild(
 		new Text(
-			`${theme.fg("muted", "─── ")}${rIcon} ${badge}${theme.fg("dim", clampTaskForDisplay(r.task))}`,
+			`${theme.fg("muted", "─── ")}${rIcon} ${badge}${theme.fg("dim", clampTaskForDisplay(r.task, TASK_DISPLAY_LINES_EXPANDED))}`,
 			0, 0,
 		),
 	);
@@ -400,7 +428,9 @@ export function renderProgressPlainLines(task: string, result: SingleResult): st
 	const taskPreview = btwTaskPreview(task);
 	const lines: string[] = [];
 
-	lines.push(`⏳ btw: ${taskPreview}`);
+	// Mirror the finished view's `[mode/model]` badge in the live widget — that's
+	// the longest-lived UI state for a /btw run.
+	lines.push(`⏳ btw: ${result.agentBadge ? `[${result.agentBadge}] ` : ""}${taskPreview}`);
 
 	const items = result.displayItems;
 	const itemsToShow = items.slice(-MINIBOX_LINES);

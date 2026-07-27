@@ -45,7 +45,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node test/settle-controller.test.mjs && node test/resume-decision.test.mjs"
+    "test": "node test/settle-controller.test.mjs && node test/resume-decision.test.mjs && node test/display-format.test.mjs"
   },
   "devDependencies": {
     "@mariozechner/jiti": "^2.6.5",

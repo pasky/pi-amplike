@@ -63,7 +63,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// --- Resolve model ---
-			const { model: targetModel, thinkingLevel: targetThinkingLevel } = await resolveModelAndThinking(
+			const { model: targetModel, thinkingLevel: targetThinkingLevel, applied, unresolved } = await resolveModelAndThinking(
 				ctx.cwd,
 				ctx.modelRegistry,
 				ctx.model,
@@ -80,9 +80,10 @@ export default function (pi: ExtensionAPI) {
 
 			const makeDetails = (results: SingleResult[]): SubagentDetails => ({ results });
 
-			// Only shown when the caller explicitly asked for a mode/model, so the
-			// UI distinguishes "inherits parent" from an overridden subagent.
-			const agentBadge = formatAgentBadge({ mode: params.mode, model: params.model });
+			// Built from the overrides that ACTUALLY applied (plus any ignored ones),
+			// not the raw request: an unknown mode/model silently falls back to the
+			// parent's model, and a badge echoing the request would misreport that.
+			const agentBadge = formatAgentBadge({ ...applied, unresolved });
 
 			const allResults: SingleResult[] = params.tasks.map((task) => ({
 				task,

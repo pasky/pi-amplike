@@ -23,6 +23,8 @@ import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { resolveModelAndThinking } from "./lib/mode-utils.js";
 import {
 	type SingleResult,
+	TASK_DISPLAY_LINES_EXPANDED,
+	clampTaskForDisplay,
 	formatAgentBadge,
 	formatToolCall,
 	formatUsage,
@@ -81,7 +83,7 @@ export default function (pi: ExtensionAPI) {
 		const badge = r.agentBadge ? `${theme.fg("accent", `[${r.agentBadge}]`)} ` : "";
 		box.addChild(
 			new Text(
-				`${icon} ${theme.fg("toolTitle", theme.bold("btw: "))}${badge}${theme.fg("dim", r.task)}`,
+				`${icon} ${theme.fg("toolTitle", theme.bold("btw: "))}${badge}${theme.fg("dim", clampTaskForDisplay(r.task, TASK_DISPLAY_LINES_EXPANDED))}`,
 				0, 0,
 			),
 		);
@@ -155,7 +157,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// Resolve model/thinking
-			const { model: targetModel, thinkingLevel } = await resolveModelAndThinking(
+			const { model: targetModel, thinkingLevel, applied, unresolved } = await resolveModelAndThinking(
 				ctx.cwd,
 				ctx.modelRegistry,
 				ctx.model,
@@ -185,9 +187,16 @@ export default function (pi: ExtensionAPI) {
 			// Unique widget key per invocation so multiple /btw's don't clobber each other
 			const widgetKey = `btw-${++btwCounter}`;
 
+			// Badge reflects the overrides that actually applied (see subagent.ts).
+			const agentBadge = formatAgentBadge({ ...applied, unresolved });
+
 			// Show initial status widget
 			const taskPreview = btwTaskPreview(task);
-			ctx.ui.setWidget(widgetKey, [`⏳ btw: ${taskPreview}`], { placement: "aboveEditor" });
+			ctx.ui.setWidget(
+				widgetKey,
+				[`⏳ btw: ${agentBadge ? `[${agentBadge}] ` : ""}${taskPreview}`],
+				{ placement: "aboveEditor" },
+			);
 
 			// Fire and forget — run in background, update widget on progress
 			runSubagent({
@@ -196,7 +205,7 @@ export default function (pi: ExtensionAPI) {
 				model: targetModel,
 				thinkingLevel,
 				task: taskWithContext,
-				agentBadge: formatAgentBadge({ mode: modeOpt, model: modelOpt }),
+				agentBadge,
 				parentSessionFile: ctx.sessionManager?.getSessionFile(),
 				// no abort signal — runs to completion
 				onProgress: (progressResult) => {
