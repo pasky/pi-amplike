@@ -17,6 +17,7 @@ import {
 	type SingleResult,
 	type SubagentDetails,
 	emptyUsage,
+	formatAgentBadge,
 	mapWithConcurrency,
 	renderResults,
 	runSubagent,
@@ -79,12 +80,17 @@ export default function (pi: ExtensionAPI) {
 
 			const makeDetails = (results: SingleResult[]): SubagentDetails => ({ results });
 
+			// Only shown when the caller explicitly asked for a mode/model, so the
+			// UI distinguishes "inherits parent" from an overridden subagent.
+			const agentBadge = formatAgentBadge({ mode: params.mode, model: params.model });
+
 			const allResults: SingleResult[] = params.tasks.map((task) => ({
 				task,
 				exitCode: -1, // running
 				displayItems: [],
 				finalOutput: "",
 				usage: emptyUsage(),
+				agentBadge,
 			}));
 
 			// Emit immediately so renderResult is shown from the start (hiding the renderCall block)
@@ -113,6 +119,7 @@ export default function (pi: ExtensionAPI) {
 					model: targetModel!,
 					thinkingLevel: targetThinkingLevel,
 					task,
+					agentBadge,
 					parentSessionFile: ctx.sessionManager?.getSessionFile(),
 					signal,
 					onProgress: (r) => {

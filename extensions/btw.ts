@@ -23,6 +23,7 @@ import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { resolveModelAndThinking } from "./lib/mode-utils.js";
 import {
 	type SingleResult,
+	formatAgentBadge,
 	formatToolCall,
 	formatUsage,
 	btwTaskPreview,
@@ -76,9 +77,13 @@ export default function (pi: ExtensionAPI) {
 
 		const box = new Box(1, 1, (t: string) => theme.bg("customMessageBg", t));
 
-		// Single merged header: ✓ btw: <task>
+		// Single merged header: ✓ btw: [mode/model] <task>
+		const badge = r.agentBadge ? `${theme.fg("accent", `[${r.agentBadge}]`)} ` : "";
 		box.addChild(
-			new Text(`${icon} ${theme.fg("toolTitle", theme.bold("btw: "))}${theme.fg("dim", r.task)}`, 0, 0),
+			new Text(
+				`${icon} ${theme.fg("toolTitle", theme.bold("btw: "))}${badge}${theme.fg("dim", r.task)}`,
+				0, 0,
+			),
 		);
 
 		if (r.exitCode > 0 && r.errorMessage) {
@@ -191,6 +196,7 @@ export default function (pi: ExtensionAPI) {
 				model: targetModel,
 				thinkingLevel,
 				task: taskWithContext,
+				agentBadge: formatAgentBadge({ mode: modeOpt, model: modelOpt }),
 				parentSessionFile: ctx.sessionManager?.getSessionFile(),
 				// no abort signal — runs to completion
 				onProgress: (progressResult) => {

@@ -66,6 +66,12 @@ export interface SingleResult {
 	finalOutput: string;
 	usage: UsageStats;
 	model?: string;
+	/**
+	 * Requested mode/model badge (e.g. "deep", "anthropic/claude-haiku-4-5"),
+	 * shown next to the task in the UI. Only set when the caller explicitly asked
+	 * for a mode and/or model — an unset badge means "inherits the parent's".
+	 */
+	agentBadge?: string;
 	stopReason?: string;
 	errorMessage?: string;
 	/** Subagent session id (persisted) for follow-up session-query. */
@@ -85,6 +91,15 @@ export type DisplayItem =
 // ---------------------------------------------------------------------------
 // Usage helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Build the mode/model badge shown next to a subagent in the UI. Returns
+ * undefined when neither was explicitly requested (so nothing is rendered).
+ */
+export function formatAgentBadge(opts: { mode?: string; model?: string }): string | undefined {
+	const parts = [opts.mode, opts.model].filter((s): s is string => !!s && !!s.trim());
+	return parts.length ? parts.join(" ") : undefined;
+}
 
 export function emptyUsage(): UsageStats {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
@@ -202,12 +217,14 @@ export function renderMinibox(
 
 	const lines: string[] = [];
 
+	const badge = r.agentBadge ? `${theme.fg("accent", `[${r.agentBadge}]`)} ` : "";
+
 	if (options.showTask) {
 		// Clamp the task to a few lines (see clampTaskForDisplay) so an oversized
 		// input can't blow the minibox up to full-screen and flicker.
-		lines.push(`${icon} ${theme.fg("dim", clampTaskForDisplay(r.task))}`);
+		lines.push(`${icon} ${badge}${theme.fg("dim", clampTaskForDisplay(r.task))}`);
 	} else {
-		lines.push(icon);
+		lines.push(badge ? `${icon} ${badge.trimEnd()}` : icon);
 	}
 
 	if (isError && r.errorMessage) {
@@ -267,8 +284,12 @@ export function renderResultExpanded(
 	container.addChild(new Spacer(1));
 	// Clamp the task prompt (see clampTaskForDisplay) so an oversized input can't
 	// dominate the transcript.
+	const badge = r.agentBadge ? `${theme.fg("accent", `[${r.agentBadge}]`)} ` : "";
 	container.addChild(
-		new Text(`${theme.fg("muted", "─── ")}${rIcon} ${theme.fg("dim", clampTaskForDisplay(r.task))}`, 0, 0),
+		new Text(
+			`${theme.fg("muted", "─── ")}${rIcon} ${badge}${theme.fg("dim", clampTaskForDisplay(r.task))}`,
+			0, 0,
+		),
 	);
 
 	if (r.exitCode > 0 && r.errorMessage) {
@@ -601,6 +622,8 @@ export interface RunSubagentOptions {
 	thinkingLevel: string;
 	/** The task prompt. */
 	task: string;
+	/** Optional mode/model badge to surface in the UI (see SingleResult.agentBadge). */
+	agentBadge?: string;
 	/** Parent session file path, to thread the subagent session under it. */
 	parentSessionFile?: string;
 	/** Optional abort signal. */
@@ -706,7 +729,7 @@ export function decideResume(args: {
  * (createGatedBashDefinition) that overrides the built-in.
  */
 export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResult> {
-	const { cwd, modelRegistry, model, thinkingLevel, task, parentSessionFile, signal, onProgress } = opts;
+	const { cwd, modelRegistry, model, thinkingLevel, task, agentBadge, parentSessionFile, signal, onProgress } = opts;
 
 	const result: SingleResult = {
 		task,
@@ -715,6 +738,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResul
 		finalOutput: "",
 		usage: emptyUsage(),
 		model: `${model.provider}/${model.id}`,
+		agentBadge,
 	};
 
 	// Abort before we even start.
