@@ -207,6 +207,9 @@ export default function (pi: ExtensionAPI) {
 				task: taskWithContext,
 				agentBadge,
 				parentSessionFile: ctx.sessionManager?.getSessionFile(),
+				// Lets other extensions of this session shape the subagent's system
+				// prompt (see SYSTEM_PROMPT_CHANNEL in lib/subagent-core.ts).
+				events: pi.events,
 				// no abort signal — runs to completion
 				onProgress: (progressResult) => {
 					// Update widget with live tool call feed
