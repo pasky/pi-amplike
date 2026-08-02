@@ -239,8 +239,22 @@ export const CD_PREFIX_RE = /^cd[^;&]*?&&\s*/;
 
 export const GLOBAL_SETTINGS = join(homedir(), ".config", "amp", "settings.json");
 
-// Extension settings file — follows the ~/.pi/agent/<name>.json convention
-export const AMPLIKE_SETTINGS_PATH = join(homedir(), ".pi", "agent", "amplike.json");
+/**
+ * Extension settings file — follows the <agentDir>/<name>.json convention.
+ * Honours PI_CODING_AGENT_DIR (pi's supported config-directory override), so a
+ * pi run against a non-default agent dir reads the amplike.json that lives there
+ * rather than the one in ~/.pi/agent.
+ */
+export const AMPLIKE_SETTINGS_PATH = join(resolveAgentDir(), "amplike.json");
+
+/** pi's effective agent dir: PI_CODING_AGENT_DIR (with ~ expansion) or ~/.pi/agent. */
+export function resolveAgentDir(): string {
+	const env = process.env.PI_CODING_AGENT_DIR;
+	if (!env) return join(homedir(), ".pi", "agent");
+	if (env === "~") return homedir();
+	if (env.startsWith("~/")) return join(homedir(), env.slice(2));
+	return env;
+}
 
 export interface AmplikeSettings {
 	permissions?: {

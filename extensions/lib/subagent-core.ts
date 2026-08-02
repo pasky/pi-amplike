@@ -14,7 +14,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
-import { loadAmplikeSettings, resolveBashAction } from "./permissions-core.js";
+import { loadAmplikeSettings, resolveAgentDir, resolveBashAction } from "./permissions-core.js";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, MarkdownTheme } from "@earendil-works/pi-tui";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
@@ -675,16 +675,6 @@ export function createSettleController(opts: {
 	};
 }
 
-function resolveAgentDir(): string {
-	const env = process.env.PI_CODING_AGENT_DIR;
-	if (env) {
-		if (env === "~") return os.homedir();
-		if (env.startsWith("~/")) return path.join(os.homedir(), env.slice(2));
-		return env;
-	}
-	return path.join(os.homedir(), ".pi", "agent");
-}
-
 export interface RunSubagentOptions {
 	/** Working directory for tool execution and resource discovery. */
 	cwd: string;
@@ -839,6 +829,17 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResul
 	].join("\n");
 
 	const agentDir = resolveAgentDir();
+	// Extension load/handler problems in the subagent's own session. Reported in
+	// the live feed AND appended to the final output: display items alone are
+	// dropped by the expanded/finished renderers and never reach the parent model,
+	// so a broken subagent.extensions entry would still look like a clean run.
+	const extensionProblems: string[] = [];
+	const noteExtensionProblem = (message: string) => {
+		const line = `⚠ subagent extension: ${message}`;
+		if (extensionProblems.includes(line)) return; // a failing handler fires per turn
+		extensionProblems.push(line);
+		result.displayItems.push({ type: "text", text: line });
+	};
 	let session: any;
 	let unsubscribe: (() => void) | undefined;
 	let onAbort: (() => void) | undefined;
@@ -892,17 +893,17 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResul
 		session = created.session;
 		// No UI bindings: pi falls back to its no-op UI context, so an opted-in
 		// extension calling ui.setStatus()/notify() here is inert rather than
-		// reaching into the parent's TUI.
-		await session.bindExtensions({});
+		// reaching into the parent's TUI. onError collects handler failures, which
+		// pi otherwise reports through the UI the subagent doesn't have.
+		await session.bindExtensions({
+			onError: (err: any) => noteExtensionProblem(`${err?.extensionPath ?? "extension"} (${err?.event ?? "?"}): ${err?.error ?? err}`),
+		});
 
 		// A mistyped subagent.extensions entry would otherwise fail silently (pi
 		// collects load errors instead of throwing), leaving the subagent quietly
-		// unconfigured. Surface it where the run is visible.
+		// unconfigured — exactly the failure mode this opt-in exists to fix.
 		for (const err of created.extensionsResult?.errors ?? []) {
-			result.displayItems.push({
-				type: "text",
-				text: `⚠ subagent extension not loaded: ${err.path}: ${err.error}`,
-			});
+			noteExtensionProblem(`not loaded: ${err.path}: ${err.error}`);
 		}
 
 		result.sessionId = session.sessionManager.getSessionId();
@@ -1129,6 +1130,15 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResul
 		} else if (result.exitCode === -1) {
 			result.exitCode = 0;
 		}
+
+		// Report extension trouble to the caller too: the parent model only ever
+		// sees finalOutput/errorMessage, so an opted-in extension that failed to
+		// load would otherwise be invisible outside the live feed.
+		if (extensionProblems.length) {
+			const notice = extensionProblems.join("\n");
+			result.errorMessage = result.errorMessage ? `${result.errorMessage}\n${notice}` : notice;
+			result.finalOutput = result.finalOutput ? `${result.finalOutput}\n\n${notice}` : notice;
+		}
 	} catch (err) {
 		result.exitCode = 1;
 		result.errorMessage = err instanceof Error ? err.message : String(err);
@@ -1139,6 +1149,16 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResul
 		settle?.dispose();
 		if (signal && onAbort) signal.removeEventListener("abort", onAbort);
 		unsubscribe?.();
+		// dispose() does NOT emit session_shutdown (agent-session.js:479), so an
+		// opted-in extension would never get to clear its timers/listeners — pi's
+		// own teardown emits it first (agent-session-runtime.js:102), and so do we.
+		try {
+			if (session?.extensionRunner?.hasHandlers("session_shutdown")) {
+				await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+			}
+		} catch {
+			/* best-effort: a failing shutdown handler must not break the run */
+		}
 		try {
 			session?.dispose();
 		} catch {

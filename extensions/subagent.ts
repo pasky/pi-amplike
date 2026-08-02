@@ -2,8 +2,9 @@
  * Subagent extension - run isolated subagents over a full AgentSession.
  *
  * Each subagent gets its own persisted, in-process AgentSession (see
- * runSubagent in lib/subagent-core.ts) with the four built-in tools and no
- * extensions loaded (for isolation). AgentSession provides context compaction,
+ * runSubagent in lib/subagent-core.ts) with the four built-in tools and only the
+ * extensions the user opted in via amplike.json `subagent.extensions` (none by
+ * default, for isolation). AgentSession provides context compaction,
  * overflow recovery, and auto-retry. The task text is passed as the sole user
  * message; there is no shared conversation history.
  */
