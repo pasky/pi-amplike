@@ -128,24 +128,11 @@ Ask your agent to "use subagents to ..." whenever you know you have a context-hu
 
 When your agent is working on something and you suddenly got a question, use `/btw` to ask it. Of course, you can even ask multiple questions in parallel. The `/btw` subagent is ephemeral like tool subagents, but unlike tool subagents it sees the full contxt of your session (besides the fact that it can also use tools to read files).
 
-#### Customizing the subagent system prompt
+#### Subagent system prompt
 
-Subagents run their own `AgentSession` with **no extensions loaded** (extensions hold module state and register on a shared runtime, so binding them inside a second in-process session would corrupt the parent session). A consequence is that extensions which reshape the system prompt in `before_agent_start` do not apply to subagents — and blanket-inheriting the parent's prompt would be wrong too, since much prompt shaping is about the parent's own conversation (a session-summary extension, say) and has no business in a subagent.
+Subagents run their own `AgentSession` with **no extensions loaded** (extensions hold module state and register on a shared runtime, so binding them inside a second in-process session would corrupt the parent session). That would also mean extensions which shape the system prompt in `before_agent_start` — per-provider prompts, personas, appended house style — silently do not apply to subagents.
 
-So amplike asks rather than assumes: before building a subagent's prompt it emits a mutable request on the `pi.events` bus and uses whatever comes back. Any extension of the session can opt in by listening:
-
-```ts
-export default function myExt(pi: ExtensionAPI) {
-  pi.events.on("amplike:system_prompt", (req: any) => {
-    // req: { target: "subagent", provider?, modelId?, cwd, systemPrompt }
-    // req.systemPrompt in:  what pi discovered (undefined = pi's built-in default)
-    // req.systemPrompt out: what the subagent should use
-    if (req.provider === "openai-codex") req.systemPrompt = MY_CODEX_PROMPT;
-  });
-}
-```
-
-Listeners must mutate synchronously (pi builds the prompt synchronously). The resulting string replaces the prompt *head* only (it feeds pi's `customPrompt` slot); project context files, skills, date and cwd are still appended by pi. A listener that throws is ignored rather than failing the subagent.
+So a subagent simply **inherits the spawning session's effective system prompt** (`ctx.getSystemPrompt()`) instead of rebuilding its own: whatever prompt the session ended up with, its subagents run too, for every such extension at once and without amplike knowing about any of them. Project context and skills are not re-appended (the inherited prompt already contains them, same cwd). Before the session's first turn there is nothing extension-shaped to inherit yet, and the subagent falls back to pi's normal prompt discovery.
 
 ### Permissions
 

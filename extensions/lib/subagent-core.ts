@@ -538,74 +538,42 @@ export function createGatedBashDefinition(
 }
 
 // ---------------------------------------------------------------------------
-// System-prompt negotiation (generic, extension-agnostic)
+// System prompt inheritance
 // ---------------------------------------------------------------------------
 
 /**
- * `pi.events` channel on which a subagent asks the other extensions of the
- * PARENT session how its system prompt should look.
+ * Resource-loader options that make a subagent run the session's own effective
+ * system prompt (as passed in `inheritedPrompt`, normally `ctx.getSystemPrompt()`).
  *
- * Why it exists: subagents run with `noExtensions: true` (see runSubagent), so
- * extensions that reshape the system prompt in `before_agent_start` never fire
- * for them and a subagent silently drifts from the prompt setup the parent runs
- * with. Loading those extensions into the subagent session is not an option
- * (shared module state + shared runtime, see runSubagent's isolation note), and
- * blanket-inheriting the parent's effective prompt is wrong too — plenty of
- * prompt shaping is about the parent's own conversation (e.g. a session-summary
- * extension) and must NOT leak into a subagent.
+ * Why inherit at all: subagents load no extensions (see runSubagent), so any
+ * extension that shapes the system prompt in `before_agent_start` — a
+ * per-provider prompt, an appended house style, a custom persona — silently does
+ * not apply to them, and the subagent ends up running a different prompt than the
+ * session that spawned it. Inheriting the finished prompt fixes that for every
+ * such extension at once, without amplike knowing any of them and without loading
+ * extensions into the subagent session.
  *
- * So amplike asks instead of assuming, over pi's documented cross-extension bus,
- * and stays ignorant of what any particular extension does with the request: it
- * emits a mutable payload and uses whatever `systemPrompt` value comes back.
- * Handlers must mutate synchronously (pi's `systemPromptOverride` is sync).
+ * Why the flags: the inherited string is a COMPLETE prompt (pi already appended
+ * project context, skills, date and cwd to it), and it goes into buildSystemPrompt's
+ * `customPrompt` slot, which appends those sections again. Same cwd, so they would
+ * be byte-identical duplicates; `noContextFiles`/`noSkills` suppress the re-append.
+ * The date/cwd trailer is re-appended regardless (pi always adds it, cheap and
+ * harmless).
  *
- * The result feeds buildSystemPrompt's `customPrompt` slot: `undefined` means
- * "pi's built-in default prompt", and a string REPLACES that head only — project
- * context, skills, date and cwd are still appended by pi afterwards.
+ * Returns `{}` when there's nothing to inherit, so the caller can spread it
+ * unconditionally and fall back to pi's normal prompt discovery. That is also the
+ * outcome before the session's first turn (`ctx.getSystemPrompt()` only reflects
+ * extension edits from `before_agent_start` onwards), which is exactly the
+ * pre-inheritance behaviour — i.e. never worse than not inheriting.
  */
-export const SYSTEM_PROMPT_CHANNEL = "amplike:system_prompt";
-
-export interface SystemPromptRequest {
-	/** What kind of session the prompt is being built for. */
-	target: "subagent";
-	/** Provider of the model the session will run with (e.g. "anthropic"). */
-	provider?: string;
-	/** Model id the session will run with. */
-	modelId?: string;
-	/** Working directory of the session. */
-	cwd: string;
-	/**
-	 * Mutable. In: the prompt pi discovered (undefined = pi's built-in default).
-	 * Out: whatever the session should actually use.
-	 */
-	systemPrompt: string | undefined;
-}
-
-/** Minimal shape of pi's cross-extension event bus (see ExtensionAPI.events). */
-export interface SystemPromptEventBus {
-	emit(channel: string, data: unknown): void;
-}
-
-/**
- * Emit the request and return the (possibly rewritten) prompt. Never throws:
- * with no bus, no listeners, or a listener that misbehaves, the caller keeps the
- * prompt pi discovered. A non-string, non-undefined value is ignored likewise.
- */
-export function negotiateSystemPrompt(
-	events: SystemPromptEventBus | undefined,
-	request: SystemPromptRequest,
-): string | undefined {
-	if (!events) return request.systemPrompt;
-	const payload: SystemPromptRequest = { ...request };
-	try {
-		events.emit(SYSTEM_PROMPT_CHANNEL, payload);
-	} catch {
-		return request.systemPrompt;
-	}
-	if (typeof payload.systemPrompt === "string" || payload.systemPrompt === undefined) {
-		return payload.systemPrompt;
-	}
-	return request.systemPrompt;
+export function inheritedPromptLoaderOptions(inheritedPrompt: string | undefined): {
+	systemPrompt?: string;
+	noContextFiles?: boolean;
+	noSkills?: boolean;
+} {
+	const prompt = inheritedPrompt?.trim();
+	if (!prompt) return {};
+	return { systemPrompt: prompt, noContextFiles: true, noSkills: true };
 }
 
 export interface SettleController {
@@ -728,11 +696,11 @@ export interface RunSubagentOptions {
 	/** Parent session file path, to thread the subagent session under it. */
 	parentSessionFile?: string;
 	/**
-	 * Parent session's cross-extension event bus (`pi.events`). Used to ask other
-	 * extensions how the subagent's system prompt should look — see
-	 * SYSTEM_PROMPT_CHANNEL. Omitting it just means "no negotiation".
+	 * The spawning session's effective system prompt (`ctx.getSystemPrompt()`),
+	 * inherited by the subagent so extension-driven prompt customization isn't lost
+	 * — see inheritedPromptLoaderOptions. Omit to use pi's own prompt discovery.
 	 */
-	events?: SystemPromptEventBus;
+	inheritSystemPrompt?: string;
 	/** Optional abort signal. */
 	signal?: AbortSignal;
 	/** Progress callback, fired on each message/tool/compaction event. */
@@ -831,17 +799,17 @@ export function decideResume(args: {
  * variation). Running the full extension set safely would require a separate
  * process. The session is still persisted, so it stays queryable.
  *
- * The one prompt-shaping escape hatch is the SYSTEM_PROMPT_CHANNEL request,
- * applied as `systemPromptOverride`, which lets prompt customizations the parent
- * session runs with opt into reaching subagents — without loading (or knowing
- * about) any extension.
+ * The prompt is the one thing that is inherited rather than rebuilt: the parent
+ * passes its effective system prompt (see inheritedPromptLoaderOptions), so
+ * extension-driven prompt customization applies to subagents without any
+ * extension being loaded, or amplike knowing about any of them.
  *
  * Because the permissions extension is not loaded, bash would otherwise bypass
  * amp's allow/ask/deny policy; we re-enforce it via a gated `bash` customTool
  * (createGatedBashDefinition) that overrides the built-in.
  */
 export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResult> {
-	const { cwd, modelRegistry, model, thinkingLevel, task, agentBadge, parentSessionFile, events, signal, onProgress } = opts;
+	const { cwd, modelRegistry, model, thinkingLevel, task, agentBadge, parentSessionFile, inheritSystemPrompt, signal, onProgress } = opts;
 
 	const result: SingleResult = {
 		task,
@@ -889,16 +857,9 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResul
 			settingsManager,
 			// Isolation: do not load extensions in-process (see function doc).
 			noExtensions: true,
-			// ...which also means prompt-shaping extensions can't run here, so ask the
-			// parent session's extensions instead (see SYSTEM_PROMPT_CHANNEL).
-			systemPromptOverride: (base: string | undefined) =>
-				negotiateSystemPrompt(events, {
-					target: "subagent",
-					provider: model?.provider,
-					modelId: model?.id,
-					cwd,
-					systemPrompt: base,
-				}),
+			// ...which also means prompt-shaping extensions can't run here, so run the
+			// prompt they already produced for the spawning session instead.
+			...inheritedPromptLoaderOptions(inheritSystemPrompt),
 		});
 		await resourceLoader.reload();
 
