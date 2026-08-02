@@ -246,6 +246,16 @@ export interface AmplikeSettings {
 	permissions?: {
 		mode?: "enabled" | "yolo";
 	};
+	subagent?: {
+		/**
+		 * Extensions to load into subagent sessions, which otherwise run with none
+		 * (see subagentExtensionPaths in lib/subagent-core.ts). Same meaning as pi's
+		 * `--no-extensions --extension <path>`: nothing is discovered, only these
+		 * load. Relative paths resolve against the pi agent dir (~/.pi/agent), so
+		 * "extensions/foo.ts" refers to a global extension; `~` is expanded.
+		 */
+		extensions?: string[];
+	};
 }
 
 export function loadSettings(paths: string[]): AmpSettings {

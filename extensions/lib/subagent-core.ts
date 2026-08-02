@@ -538,80 +538,47 @@ export function createGatedBashDefinition(
 }
 
 // ---------------------------------------------------------------------------
-// System prompt inheritance
+// Opt-in extensions for subagent sessions
 // ---------------------------------------------------------------------------
 
 /**
- * Resource-loader options that make a subagent run the session's own effective
- * system prompt (as passed in `inheritedPrompt`, normally `ctx.getSystemPrompt()`).
+ * Extensions the user asked to load into subagent sessions (`amplike.json`:
+ * `subagent.extensions`), resolved to absolute paths.
  *
- * Why inherit at all: subagents load no extensions (see runSubagent), so any
- * extension that shapes the system prompt in `before_agent_start` — a
- * per-provider prompt, an appended house style, a custom persona — silently does
- * not apply to them, and the subagent ends up running a different prompt than the
- * session that spawned it. Inheriting the finished prompt fixes that for every
- * such extension at once, without amplike knowing any of them and without loading
- * extensions into the subagent session.
+ * Subagents load no extensions by default (see runSubagent), which also silently
+ * disables anything that configures the session from `before_agent_start` — most
+ * notably a system prompt chosen per model/provider. That can't be papered over
+ * from the outside: the RIGHT prompt for a subagent depends on the subagent's own
+ * model, which may differ from the session's (`mode`/`model` args), so the only
+ * thing that can compute it is the extension itself, running in the subagent's
+ * session where `ctx.model` is the subagent's model.
  *
- * Why the flags: the inherited string is a COMPLETE prompt (pi already appended
- * append-prompt, project context, skills, date and cwd to it), and it goes into
- * buildSystemPrompt's `customPrompt` slot, which appends all of those again. Same
- * cwd, so they would be byte-identical duplicates; the flags suppress the
- * re-append. The date/cwd trailer has no such flag — pi always adds it — so we
- * strip the inherited copy instead (see stripPromptTrailer) and let pi write a
- * fresh one. Net effect: the subagent's prompt is what the session runs with, no
- * section doubled.
+ * So amplike offers what pi's CLI already offers as `--no-extensions --extension
+ * <path>`: nothing is discovered, only what the user explicitly listed is loaded.
+ * Opt-in, because loading an extension into a second in-process session is only
+ * safe for extensions that keep no per-session state at module scope (pi caches
+ * extension factories per path, so parent and subagent share one module
+ * instance) — a property only the user can vouch for. Amplike itself stays
+ * ignorant of what the listed extensions do.
  *
- * Returns `{}` when there's nothing to inherit, so the caller can spread it
- * unconditionally and fall back to pi's normal prompt discovery.
+ * Relative paths resolve against `agentDir` (~/.pi/agent) rather than the cwd, so
+ * a global "extensions/foo.ts" means the same thing in every project; `~` is
+ * expanded. Missing paths are left to pi, which reports them as load errors.
  */
-export function inheritedPromptLoaderOptions(inheritedPrompt: string | undefined): {
-	systemPrompt?: string;
-	appendSystemPrompt?: string[];
-	noContextFiles?: boolean;
-	noSkills?: boolean;
-} {
-	const prompt = stripPromptTrailer(inheritedPrompt?.trim());
-	if (!prompt) return {};
-	return { systemPrompt: prompt, appendSystemPrompt: [], noContextFiles: true, noSkills: true };
-}
-
-/**
- * The date/cwd trailer buildSystemPrompt unconditionally appends LAST, matched
- * strictly and only at the very end. Inverting that one append is safe in a way
- * that splitting a prompt on content markers is not: the text is generated, fully
- * determined, and positionally pinned.
- */
-const PROMPT_TRAILER_RE = /\nCurrent date: \d{4}-\d{2}-\d{2}\nCurrent working directory: [^\n]*$/;
-
-/**
- * Drop pi's trailing `Current date:`/`Current working directory:` lines from an
- * inherited prompt, so pi can append its own (current) ones without doubling.
- * A prompt that doesn't end in exactly that shape is returned untouched.
- */
-export function stripPromptTrailer(prompt: string | undefined): string | undefined {
-	return prompt?.replace(PROMPT_TRAILER_RE, "");
-}
-
-/**
- * The session prompt a subagent should inherit, or undefined to let pi build its
- * own (see inheritedPromptLoaderOptions).
- *
- * Gated on the provider: a subagent may be explicitly pointed at another model
- * (`mode`/`model` args), and a prompt the session runs with can be written FOR its
- * provider — the very per-provider prompt extensions that motivated inheriting in
- * the first place. Handing an Anthropic-tailored prompt to a Codex subagent would
- * be worse than the default prompt, so cross-provider subagents opt out and build
- * their own. Same provider, different model id still inherits: prompts are written
- * per provider, and pi itself keys nothing else off the model here.
- */
-export function inheritablePrompt(opts: {
-	prompt: string | undefined;
-	sessionProvider: string | undefined;
-	targetProvider: string | undefined;
-}): string | undefined {
-	if (!opts.sessionProvider || opts.sessionProvider !== opts.targetProvider) return undefined;
-	return opts.prompt;
+export function subagentExtensionPaths(
+	settings: { subagent?: { extensions?: string[] } } | undefined,
+	agentDir: string,
+): string[] {
+	const configured = settings?.subagent?.extensions;
+	if (!Array.isArray(configured)) return [];
+	return configured
+		.filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+		.map((p) => {
+			const raw = p.trim();
+			if (raw === "~") return os.homedir();
+			if (raw.startsWith("~/")) return path.join(os.homedir(), raw.slice(2));
+			return path.resolve(agentDir, raw);
+		});
 }
 
 export interface SettleController {
@@ -733,12 +700,7 @@ export interface RunSubagentOptions {
 	agentBadge?: string;
 	/** Parent session file path, to thread the subagent session under it. */
 	parentSessionFile?: string;
-	/**
-	 * The spawning session's effective system prompt (`ctx.getSystemPrompt()`),
-	 * inherited by the subagent so extension-driven prompt customization isn't lost
-	 * — see inheritedPromptLoaderOptions. Omit to use pi's own prompt discovery.
-	 */
-	inheritSystemPrompt?: string;
+
 	/** Optional abort signal. */
 	signal?: AbortSignal;
 	/** Progress callback, fired on each message/tool/compaction event. */
@@ -828,26 +790,27 @@ export function decideResume(args: {
  * on transient errors. The subagent is just another headless "run mode" over
  * AgentSession.
  *
- * Isolation: extensions are NOT loaded (`noExtensions`). Extensions hold
- * module-level state and register on a shared runtime, so binding the full set
- * inside a second in-process session corrupts the PARENT session's extensions
+ * Isolation: discovered extensions are NOT loaded (`noExtensions`). Extensions
+ * hold module-level state and register on a shared runtime, so binding the full
+ * set inside a second in-process session corrupts the PARENT session's extensions
  * (observed: a parent widget callback hitting a stale ctx crashed the host).
- * Loading none keeps the subagent to the four built-in tools and a system
- * prompt composed only from system-prompt/context files (no extension-driven
- * variation). Running the full extension set safely would require a separate
- * process. The session is still persisted, so it stays queryable.
+ * Loading none keeps the subagent to the four built-in tools. Running the full
+ * extension set safely would require a separate process. The session is still
+ * persisted, so it stays queryable.
  *
- * The prompt is the one thing that is inherited rather than rebuilt: the parent
- * passes its effective system prompt (see inheritedPromptLoaderOptions), so
- * extension-driven prompt customization applies to subagents without any
- * extension being loaded, or amplike knowing about any of them.
+ * The exception is extensions the user explicitly opted in for subagents (see
+ * subagentExtensionPaths) — exactly pi's own `--no-extensions --extension <path>`
+ * semantics. That's how session-configuring extensions (notably a system prompt
+ * chosen per model/provider) reach subagents: they run IN the subagent session,
+ * so they see the subagent's own model, which a parent-side mechanism could never
+ * get right for a subagent running a different model.
  *
  * Because the permissions extension is not loaded, bash would otherwise bypass
  * amp's allow/ask/deny policy; we re-enforce it via a gated `bash` customTool
  * (createGatedBashDefinition) that overrides the built-in.
  */
 export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResult> {
-	const { cwd, modelRegistry, model, thinkingLevel, task, agentBadge, parentSessionFile, inheritSystemPrompt, signal, onProgress } = opts;
+	const { cwd, modelRegistry, model, thinkingLevel, task, agentBadge, parentSessionFile, signal, onProgress } = opts;
 
 	const result: SingleResult = {
 		task,
@@ -893,11 +856,12 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResul
 			cwd,
 			agentDir,
 			settingsManager,
-			// Isolation: do not load extensions in-process (see function doc).
+			// Isolation: discover no extensions (see function doc)...
 			noExtensions: true,
-			// ...which also means prompt-shaping extensions can't run here, so run the
-			// prompt they already produced for the spawning session instead.
-			...inheritedPromptLoaderOptions(inheritSystemPrompt),
+			// ...but honour the ones the user opted in for subagents. With
+			// noExtensions this is an allowlist, exactly like pi's own
+			// `--no-extensions --extension <path>`.
+			additionalExtensionPaths: subagentExtensionPaths(loadAmplikeSettings(), agentDir),
 		});
 		await resourceLoader.reload();
 
@@ -926,7 +890,20 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SingleResul
 			settingsManager,
 		});
 		session = created.session;
+		// No UI bindings: pi falls back to its no-op UI context, so an opted-in
+		// extension calling ui.setStatus()/notify() here is inert rather than
+		// reaching into the parent's TUI.
 		await session.bindExtensions({});
+
+		// A mistyped subagent.extensions entry would otherwise fail silently (pi
+		// collects load errors instead of throwing), leaving the subagent quietly
+		// unconfigured. Surface it where the run is visible.
+		for (const err of created.extensionsResult?.errors ?? []) {
+			result.displayItems.push({
+				type: "text",
+				text: `⚠ subagent extension not loaded: ${err.path}: ${err.error}`,
+			});
+		}
 
 		result.sessionId = session.sessionManager.getSessionId();
 		result.sessionFile = session.sessionManager.getSessionFile();

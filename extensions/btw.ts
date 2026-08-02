@@ -29,7 +29,6 @@ import {
 	formatToolCall,
 	formatUsage,
 	btwTaskPreview,
-	inheritablePrompt,
 	renderProgressPlainLines,
 	runSubagent,
 } from "./lib/subagent-core.js";
@@ -208,13 +207,6 @@ export default function (pi: ExtensionAPI) {
 				task: taskWithContext,
 				agentBadge,
 				parentSessionFile: ctx.sessionManager?.getSessionFile(),
-				// Subagents load no extensions, so they'd otherwise miss any
-				// extension-driven prompt customization this session runs with.
-				inheritSystemPrompt: inheritablePrompt({
-					prompt: ctx.getSystemPrompt(),
-					sessionProvider: ctx.model?.provider,
-					targetProvider: targetModel.provider,
-				}),
 				// no abort signal — runs to completion
 				onProgress: (progressResult) => {
 					// Update widget with live tool call feed

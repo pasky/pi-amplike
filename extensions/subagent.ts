@@ -18,7 +18,6 @@ import {
 	type SubagentDetails,
 	emptyUsage,
 	formatAgentBadge,
-	inheritablePrompt,
 	mapWithConcurrency,
 	renderResults,
 	runSubagent,
@@ -123,13 +122,6 @@ export default function (pi: ExtensionAPI) {
 					task,
 					agentBadge,
 					parentSessionFile: ctx.sessionManager?.getSessionFile(),
-					// Subagents load no extensions, so they'd otherwise miss any
-					// extension-driven prompt customization this session runs with.
-					inheritSystemPrompt: inheritablePrompt({
-						prompt: ctx.getSystemPrompt(),
-						sessionProvider: ctx.model?.provider,
-						targetProvider: targetModel!.provider,
-					}),
 					signal,
 					onProgress: (r) => {
 						allResults[index] = r;

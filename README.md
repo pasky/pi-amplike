@@ -126,6 +126,18 @@ session_query("/path/to/session.jsonl", "What approach was chosen?")
 
 Ask your agent to "use subagents to ..." whenever you know you have a context-hungry task ahead that you would like to run isolated from the main context window.
 
+Subagents run their own `AgentSession` with **no extensions loaded** — extensions keep module-level state and register on a shared runtime, so binding the whole set inside a second in-process session corrupts the parent's. If you have an extension that *configures* a session (the typical case: picking the system prompt for the model's provider), opt it in explicitly in `~/.pi/agent/amplike.json`:
+
+```json
+{
+  "subagent": {
+    "extensions": ["extensions/provider-system-prompt.ts"]
+  }
+}
+```
+
+This is pi's own `--no-extensions --extension <path>` semantics: nothing is discovered, only what you list is loaded. It runs inside the subagent session, so it sees the subagent's own model — which is the point, since a subagent may run a different model than the session that spawned it. Relative paths resolve against `~/.pi/agent`, `~` is expanded, and load failures are reported in the subagent's output. Only opt in extensions that keep no per-session state at module scope (pi caches extension factories per path, so the parent session and the subagent share one module instance).
+
 When your agent is working on something and you suddenly got a question, use `/btw` to ask it. Of course, you can even ask multiple questions in parallel. The `/btw` subagent is ephemeral like tool subagents, but unlike tool subagents it sees the full contxt of your session (besides the fact that it can also use tools to read files).
 
 ### Permissions
