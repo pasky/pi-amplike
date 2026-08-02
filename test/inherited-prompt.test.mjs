@@ -14,7 +14,7 @@
 import { createJiti } from "@mariozechner/jiti";
 
 const jiti = createJiti(import.meta.url);
-const { inheritedPromptLoaderOptions, inheritablePrompt } = await jiti.import(
+const { inheritedPromptLoaderOptions, inheritablePrompt, stripPromptTrailer } = await jiti.import(
 	"../extensions/lib/subagent-core.ts",
 );
 
@@ -38,6 +38,18 @@ eq("prompt is trimmed", inheritedPromptLoaderOptions("\n PARENT PROMPT \n").syst
 eq("project context not re-appended", inheritedPromptLoaderOptions("x").noContextFiles, true);
 eq("skills not re-appended", inheritedPromptLoaderOptions("x").noSkills, true);
 eq("APPEND_SYSTEM.md not re-appended", inheritedPromptLoaderOptions("x").appendSystemPrompt, []);
+
+// --- date/cwd trailer ------------------------------------------------------
+// pi always appends this last and offers no opt-out, so the inherited copy is
+// stripped and pi writes a fresh one — otherwise every subagent prompt would
+// carry it twice, with dates that disagree across midnight.
+const withTrailer = "HEAD\nCurrent date: 2026-08-02\nCurrent working directory: /home/x";
+eq("inherited trailer is stripped", stripPromptTrailer(withTrailer), "HEAD");
+eq("stripping is applied to the loader options", inheritedPromptLoaderOptions(withTrailer).systemPrompt, "HEAD");
+eq("only the trailing occurrence is stripped", stripPromptTrailer(`${withTrailer}\nmore`), `${withTrailer}\nmore`);
+eq("prompt without a trailer is untouched", stripPromptTrailer("HEAD"), "HEAD");
+eq("partial trailer is untouched", stripPromptTrailer("HEAD\nCurrent date: 2026-08-02"), "HEAD\nCurrent date: 2026-08-02");
+eq("undefined stays undefined", stripPromptTrailer(undefined), undefined);
 
 // --- provider gate ---------------------------------------------------------
 // A prompt the session runs with may be written for its provider (that's the

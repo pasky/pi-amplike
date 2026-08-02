@@ -557,9 +557,10 @@ export function createGatedBashDefinition(
  * append-prompt, project context, skills, date and cwd to it), and it goes into
  * buildSystemPrompt's `customPrompt` slot, which appends all of those again. Same
  * cwd, so they would be byte-identical duplicates; the flags suppress the
- * re-append. The date/cwd trailer is the one exception — pi always adds it and
- * offers no opt-out, so it appears twice (same values, modulo a subagent spawned
- * across midnight).
+ * re-append. The date/cwd trailer has no such flag — pi always adds it — so we
+ * strip the inherited copy instead (see stripPromptTrailer) and let pi write a
+ * fresh one. Net effect: the subagent's prompt is what the session runs with, no
+ * section doubled.
  *
  * Returns `{}` when there's nothing to inherit, so the caller can spread it
  * unconditionally and fall back to pi's normal prompt discovery.
@@ -570,9 +571,26 @@ export function inheritedPromptLoaderOptions(inheritedPrompt: string | undefined
 	noContextFiles?: boolean;
 	noSkills?: boolean;
 } {
-	const prompt = inheritedPrompt?.trim();
+	const prompt = stripPromptTrailer(inheritedPrompt?.trim());
 	if (!prompt) return {};
 	return { systemPrompt: prompt, appendSystemPrompt: [], noContextFiles: true, noSkills: true };
+}
+
+/**
+ * The date/cwd trailer buildSystemPrompt unconditionally appends LAST, matched
+ * strictly and only at the very end. Inverting that one append is safe in a way
+ * that splitting a prompt on content markers is not: the text is generated, fully
+ * determined, and positionally pinned.
+ */
+const PROMPT_TRAILER_RE = /\nCurrent date: \d{4}-\d{2}-\d{2}\nCurrent working directory: [^\n]*$/;
+
+/**
+ * Drop pi's trailing `Current date:`/`Current working directory:` lines from an
+ * inherited prompt, so pi can append its own (current) ones without doubling.
+ * A prompt that doesn't end in exactly that shape is returned untouched.
+ */
+export function stripPromptTrailer(prompt: string | undefined): string | undefined {
+	return prompt?.replace(PROMPT_TRAILER_RE, "");
 }
 
 /**
