@@ -554,26 +554,46 @@ export function createGatedBashDefinition(
  * extensions into the subagent session.
  *
  * Why the flags: the inherited string is a COMPLETE prompt (pi already appended
- * project context, skills, date and cwd to it), and it goes into buildSystemPrompt's
- * `customPrompt` slot, which appends those sections again. Same cwd, so they would
- * be byte-identical duplicates; `noContextFiles`/`noSkills` suppress the re-append.
- * The date/cwd trailer is re-appended regardless (pi always adds it, cheap and
- * harmless).
+ * append-prompt, project context, skills, date and cwd to it), and it goes into
+ * buildSystemPrompt's `customPrompt` slot, which appends all of those again. Same
+ * cwd, so they would be byte-identical duplicates; the flags suppress the
+ * re-append. The date/cwd trailer is the one exception — pi always adds it and
+ * offers no opt-out, so it appears twice (same values, modulo a subagent spawned
+ * across midnight).
  *
  * Returns `{}` when there's nothing to inherit, so the caller can spread it
- * unconditionally and fall back to pi's normal prompt discovery. That is also the
- * outcome before the session's first turn (`ctx.getSystemPrompt()` only reflects
- * extension edits from `before_agent_start` onwards), which is exactly the
- * pre-inheritance behaviour — i.e. never worse than not inheriting.
+ * unconditionally and fall back to pi's normal prompt discovery.
  */
 export function inheritedPromptLoaderOptions(inheritedPrompt: string | undefined): {
 	systemPrompt?: string;
+	appendSystemPrompt?: string[];
 	noContextFiles?: boolean;
 	noSkills?: boolean;
 } {
 	const prompt = inheritedPrompt?.trim();
 	if (!prompt) return {};
-	return { systemPrompt: prompt, noContextFiles: true, noSkills: true };
+	return { systemPrompt: prompt, appendSystemPrompt: [], noContextFiles: true, noSkills: true };
+}
+
+/**
+ * The session prompt a subagent should inherit, or undefined to let pi build its
+ * own (see inheritedPromptLoaderOptions).
+ *
+ * Gated on the provider: a subagent may be explicitly pointed at another model
+ * (`mode`/`model` args), and a prompt the session runs with can be written FOR its
+ * provider — the very per-provider prompt extensions that motivated inheriting in
+ * the first place. Handing an Anthropic-tailored prompt to a Codex subagent would
+ * be worse than the default prompt, so cross-provider subagents opt out and build
+ * their own. Same provider, different model id still inherits: prompts are written
+ * per provider, and pi itself keys nothing else off the model here.
+ */
+export function inheritablePrompt(opts: {
+	prompt: string | undefined;
+	sessionProvider: string | undefined;
+	targetProvider: string | undefined;
+}): string | undefined {
+	if (!opts.sessionProvider || opts.sessionProvider !== opts.targetProvider) return undefined;
+	return opts.prompt;
 }
 
 export interface SettleController {
