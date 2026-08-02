@@ -128,12 +128,6 @@ Ask your agent to "use subagents to ..." whenever you know you have a context-hu
 
 When your agent is working on something and you suddenly got a question, use `/btw` to ask it. Of course, you can even ask multiple questions in parallel. The `/btw` subagent is ephemeral like tool subagents, but unlike tool subagents it sees the full contxt of your session (besides the fact that it can also use tools to read files).
 
-#### Subagent system prompt
-
-Subagents run their own `AgentSession` with **no extensions loaded** (extensions hold module state and register on a shared runtime, so binding them inside a second in-process session would corrupt the parent session). That would also mean extensions which shape the system prompt in `before_agent_start` — per-provider prompts, personas, appended house style — silently do not apply to subagents.
-
-So a subagent simply **inherits the spawning session's effective system prompt** (`ctx.getSystemPrompt()`) instead of rebuilding its own: whatever prompt the session ended up with, its subagents run too, for every such extension at once and without amplike knowing about any of them. Project context and skills are not re-appended (the inherited prompt already contains them, same cwd). Before the session's first turn there is nothing extension-shaped to inherit yet, and the subagent falls back to pi's normal prompt discovery.
-
 ### Permissions
 
 The permissions extension enforces Amp-style bash command permissions automatically. Use the `/permissions` command to toggle modes:
