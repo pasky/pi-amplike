@@ -24,12 +24,12 @@ import { Type } from "typebox";
 
 import { loadModeSpec } from "./lib/mode-utils.js";
 
-// Cross-session communication for command-path handoff.
-// When cmdCtx.newSession() replaces the session (0.65+), the old extension
-// instance is disposed and a new one is loaded. globalThis survives the
-// replacement, so we use a process-global symbol to pass the handoff prompt
-// plus any default model/thinking restore data from the old instance to the
-// new one's session_start handler.
+// Cross-session communication for handoff.
+// When ctx.newSession() replaces the session, the old extension instance is
+// disposed and a new one is loaded. Selecting the model needs the new
+// instance's `pi`, so the old instance passes the parent's model/thinking and
+// the handoff options to the new one's session_start handler through a
+// process-global symbol (globalThis survives the replacement).
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
 type HandoffSelection = {
 	provider: string;
@@ -37,7 +37,7 @@ type HandoffSelection = {
 	thinkingLevel: ThinkingLevel;
 };
 const HANDOFF_GLOBAL_KEY = Symbol.for("pi-amplike-handoff-pending");
-type PendingHandoffGlobal = { prompt: string; options?: HandoffOptions; restore?: HandoffSelection } | null;
+type PendingHandoffGlobal = { options?: HandoffOptions; restore?: HandoffSelection } | null;
 function getPendingHandoffGlobal(): PendingHandoffGlobal {
 	return (globalThis as any)[HANDOFF_GLOBAL_KEY] ?? null;
 }
@@ -264,8 +264,9 @@ async function performHandoff(
 		return loader;
 	});
 
-	if (result === null) {
-		return "Handoff cancelled.";
+	// ui.custom() yields undefined where custom UI isn't supported (e.g. RPC).
+	if (typeof result !== "string") {
+		return result === null ? "Handoff cancelled." : "Handoff requires the interactive TUI.";
 	}
 
 	// Build the final prompt with user's goal first for easy identification
@@ -302,9 +303,10 @@ async function performHandoff(
  * session's model got a partial prompt and no tools.
  *
  * After newSession() the runtime tears down this session and creates a new one
- * with fresh extensions. Our `pi` reference becomes stale, so we stash the prompt
- * plus any default model/thinking restore data on globalThis for the new
- * instance's session_start handler.
+ * with fresh extensions; our `pi` reference becomes stale. The new instance's
+ * session_start handler applies the model (see PendingHandoffGlobal), and the
+ * prompt is sent from withSession, which runs once the replacement session is
+ * fully started and bound.
  */
 async function startHandoffSession(
 	pi: ExtensionAPI,
@@ -312,26 +314,31 @@ async function startHandoffSession(
 	pending: PendingHandoff,
 ): Promise<void> {
 	const { prompt, parentSession, options } = pending;
-	const restore = !options?.mode && !options?.model && ctx.model
-		? {
-			provider: ctx.model.provider,
-			modelId: ctx.model.id,
-			thinkingLevel: pi.getThinkingLevel(),
-		}
+	// Always carry the parent's selection over first; -mode/-model then override
+	// it (a thinking-only mode or an unknown model must not fall back to the
+	// configured default model).
+	const restore = ctx.model
+		? { provider: ctx.model.provider, modelId: ctx.model.id, thinkingLevel: pi.getThinkingLevel() }
 		: undefined;
-	setPendingHandoffGlobal({ prompt, options, restore });
+	setPendingHandoffGlobal({ options, restore });
 	setHandoffInProgress(true);
-	let cancelled = true;
 	try {
-		cancelled = (await ctx.newSession({ parentSession })).cancelled;
+		await ctx.newSession({
+			parentSession,
+			withSession: async (newCtx) => {
+				// Not awaited: that would hold the replacement until the whole run ends.
+				// deliverAs:"followUp" queues the prompt if another extension has
+				// slipped a turn in, instead of throwing "Agent is already processing".
+				newCtx.sendUserMessage(prompt, { deliverAs: "followUp" }).catch((err) => {
+					newCtx.ui.notify(`Handoff prompt failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+				});
+			},
+		});
 	} finally {
-		if (cancelled) {
-			setPendingHandoffGlobal(null);
-			setHandoffInProgress(false);
-		}
+		// Whether replaced, cancelled or failed: nothing is pending any more.
+		setPendingHandoffGlobal(null);
+		setHandoffInProgress(false);
 	}
-	// Don't call pi.sendUserMessage() here — the old pi is dead after session
-	// replacement. The new session_start handler will send the prompt.
 }
 
 export default function (pi: ExtensionAPI) {
@@ -352,16 +359,38 @@ export default function (pi: ExtensionAPI) {
 	//    session), dispatch the internal resume command in the next macrotask.
 	//    sendUserMessage with expandPromptTemplates dispatches extension commands
 	//    with a full ExtensionCommandContext.
-	// 3. The resume command performs the same full session replacement as the
-	//    /handoff command (startHandoffSession).
-	// 4. session_start in the NEW extension instance sends the prompt.
-	pi.on("agent_end", () => {
+	// 3. The resume command waits for idle and performs the same full session
+	//    replacement as the /handoff command (startHandoffSession).
+	let resumeTimer: ReturnType<typeof setTimeout> | undefined;
+
+	// Drop a tool-path handoff that will never be resumed, so the advisor isn't
+	// left muted by the in-progress flag.
+	const abandonPendingHandoff = () => {
+		if (resumeTimer !== undefined) clearTimeout(resumeTimer);
+		resumeTimer = undefined;
 		if (!pendingHandoff) return;
-		// Defer to the next macrotask so the old agent loop's cleanup has fully
-		// completed (isStreaming reset, runningPrompt resolved) before we replace it.
-		setTimeout(() => {
-			pi.sendUserMessage(`/${RESUME_COMMAND}`, { expandPromptTemplates: true });
+		pendingHandoff = null;
+		setHandoffInProgress(false);
+	};
+
+	pi.on("agent_end", () => {
+		if (!pendingHandoff || resumeTimer !== undefined) return;
+		resumeTimer = setTimeout(() => {
+			resumeTimer = undefined;
+			try {
+				pi.sendUserMessage(`/${RESUME_COMMAND}`, { expandPromptTemplates: true });
+			} catch {
+				// E.g. this instance went stale because the session was replaced or
+				// reloaded first.
+				abandonPendingHandoff();
+			}
 		}, 0);
+	});
+
+	// Another session replacement, reload or quit beat the resume command. (Our own
+	// replacement consumes pendingHandoff before it shuts this session down.)
+	pi.on("session_shutdown", () => {
+		abandonPendingHandoff();
 	});
 
 	pi.registerCommand(RESUME_COMMAND, {
@@ -377,7 +406,7 @@ export default function (pi: ExtensionAPI) {
 				await ctx.waitForIdle();
 				await startHandoffSession(pi, ctx, pending);
 			} catch (err) {
-				// Never leave the advisor permanently muted by a failed handoff.
+				// Never leave the advisor muted by a failed handoff.
 				setPendingHandoffGlobal(null);
 				setHandoffInProgress(false);
 				ctx.ui.notify(`Handoff failed: ${err instanceof Error ? err.message : String(err)}`, "error");
@@ -386,26 +415,18 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// After ctx.newSession() replaces the runtime, this NEW extension instance's
-	// session_start fires. Pick up the handoff stashed on globalThis by the old
-	// instance and send its prompt.
+	// session_start fires: select the parent's model, then apply -mode/-model.
+	// The prompt itself is sent by the old instance's withSession callback, after
+	// the replacement session has fully started.
 	pi.on("session_start", async (event, ctx) => {
-		if (event.reason === "new") {
-			const pending = getPendingHandoffGlobal();
-			if (pending) {
-				setPendingHandoffGlobal(null);
-				try {
-					if (pending.restore) {
-						await restoreHandoffSelection(pi, ctx, pending.restore);
-					}
-					await applyHandoffOptions(pi, ctx, pending.options);
-					// deliverAs:"followUp" queues the prompt if some other extension has
-					// slipped a turn in, instead of throwing "Agent is already processing".
-					pi.sendUserMessage(pending.prompt, { deliverAs: "followUp" });
-				} finally {
-					setHandoffInProgress(false);
-				}
-			}
+		if (event.reason !== "new") return;
+		const pending = getPendingHandoffGlobal();
+		if (!pending) return;
+		setPendingHandoffGlobal(null);
+		if (pending.restore) {
+			await restoreHandoffSelection(pi, ctx, pending.restore);
 		}
+		await applyHandoffOptions(pi, ctx, pending.options);
 	});
 
 	// /handoff command
