@@ -151,8 +151,13 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			const isError = results.length === 1 ? results[0].exitCode !== 0 : failCount === results.length;
+			// The caller LLM only sees this text, not the UI badge: say so when a
+			// requested mode/model was ignored and the subagent ran on a fallback.
+			const fallbackNote = unresolved.length
+				? `⚠ ignored ${unresolved.join(" ")} — ran on ${targetModel.provider}/${targetModel.id} (thinking: ${targetThinkingLevel})\n`
+				: "";
 			return {
-				content: [{ type: "text", text: `${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}` }],
+				content: [{ type: "text", text: `${fallbackNote}${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}` }],
 				details: makeDetails(results),
 				isError,
 			};

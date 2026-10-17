@@ -95,5 +95,33 @@ eq(
 	[{}, ["mode:definitely-not-a-real-mode-xyz"]],
 );
 
+// A mode whose model doesn't resolve must not count as applied just because
+// its thinking level did (that ran the parent model under the mode's badge).
+const fs = await import("node:fs");
+const os = await import("node:os");
+const path = await import("node:path");
+const modesCwd = fs.mkdtempSync(path.join(os.tmpdir(), "modes-test-"));
+fs.mkdirSync(path.join(modesCwd, ".pi"));
+fs.writeFileSync(path.join(modesCwd, ".pi", "modes.json"), JSON.stringify({ modes: {
+	gone: { provider: "bogus", modelId: "missing", thinkingLevel: "high" },
+	ok: { provider: "anthropic", modelId: "good", thinkingLevel: "high" },
+} }));
+const r5 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mode: "gone" });
+eq(
+	"resolve: mode with unresolvable model is unresolved, nothing half-applied",
+	[r5.model.id, r5.thinkingLevel, r5.applied, r5.unresolved],
+	["parent-model", "off", {}, ["mode:gone"]],
+);
+const r6 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mode: "ok" });
+eq("resolve: valid mode applies model + thinking", [r6.model.id, r6.thinkingLevel, r6.applied], ["good", "high", { mode: "ok" }]);
+fs.rmSync(modesCwd, { recursive: true });
+
+// "provider/id:<thinking>" (pi CLI form) resolves; a non-thinking colon suffix
+// stays part of the model id.
+const r7 = await resolveModelAndThinking("/nonexistent-cwd", registry, parent, "off", { model: "anthropic/good:high" });
+eq("resolve: model:thinking suffix applies both", [r7.model.id, r7.thinkingLevel, r7.unresolved], ["good", "high", []]);
+const r8 = await resolveModelAndThinking("/nonexistent-cwd", registry, parent, "off", { model: "anthropic/good:batch" });
+eq("resolve: non-thinking colon suffix is part of the id", [r8.model.id, r8.unresolved], ["parent-model", ["model:anthropic/good:batch"]]);
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
