@@ -1,7 +1,7 @@
 /**
  * Shared mode/model resolution utilities.
  *
- * Used by handoff and subagent to resolve -mode and -model parameters
+ * Used by subagent and /btw to resolve mode and model parameters
  * against modes.json.
  */
 
@@ -58,8 +58,6 @@ export async function loadModeSpec(
 	return undefined;
 }
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
 export interface ResolvedModeAndThinking {
 	model: any;
 	thinkingLevel: string;
@@ -93,14 +91,15 @@ export async function resolveModelAndThinking(
 
 	if (params.mode) {
 		const spec = await loadModeSpec(cwd, params.mode);
-		// A mode applies all-or-nothing: if it names a model that doesn't resolve,
-		// the whole mode is unresolved. Applying just its thinking level would run
-		// the parent's model while reporting the mode as applied.
+		// A mode applies all-or-nothing: if it names a model (even half of a
+		// provider/modelId pair) that doesn't resolve, the whole mode is
+		// unresolved. Applying just its thinking level would run the parent's
+		// model while reporting the mode as applied.
+		const namesModel = !!(spec?.provider || spec?.modelId);
 		const m = spec?.provider && spec.modelId
 			? modelRegistry.find(spec.provider, spec.modelId)
 			: undefined;
-		const modelOk = !(spec?.provider && spec.modelId) || !!m;
-		if (spec && modelOk && (m || spec.thinkingLevel)) {
+		if (spec && (namesModel ? !!m : !!spec.thinkingLevel)) {
 			if (m) targetModel = m;
 			if (spec.thinkingLevel) targetThinkingLevel = spec.thinkingLevel;
 			applied.mode = params.mode;
@@ -110,19 +109,12 @@ export async function resolveModelAndThinking(
 	}
 
 	if (params.model) {
-		// Accept pi's CLI form "provider/id:<thinking>" (only a known thinking
-		// level is treated as a suffix; model ids may contain colons themselves).
-		const colonIdx = params.model.lastIndexOf(":");
-		const suffix = colonIdx > 0 ? params.model.slice(colonIdx + 1) : "";
-		const thinking = THINKING_LEVELS.includes(suffix) ? suffix : undefined;
-		const spec = thinking ? params.model.slice(0, colonIdx) : params.model;
-		const slashIdx = spec.indexOf("/");
+		const slashIdx = params.model.indexOf("/");
 		const m = slashIdx > 0
-			? modelRegistry.find(spec.slice(0, slashIdx), spec.slice(slashIdx + 1))
+			? modelRegistry.find(params.model.slice(0, slashIdx), params.model.slice(slashIdx + 1))
 			: undefined;
 		if (m) {
 			targetModel = m;
-			if (thinking) targetThinkingLevel = thinking;
 			applied.model = params.model;
 		} else {
 			unresolved.push(`model:${params.model}`);

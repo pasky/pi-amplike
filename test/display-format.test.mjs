@@ -105,6 +105,8 @@ fs.mkdirSync(path.join(modesCwd, ".pi"));
 fs.writeFileSync(path.join(modesCwd, ".pi", "modes.json"), JSON.stringify({ modes: {
 	gone: { provider: "bogus", modelId: "missing", thinkingLevel: "high" },
 	ok: { provider: "anthropic", modelId: "good", thinkingLevel: "high" },
+	half: { modelId: "good", thinkingLevel: "high" },
+	thinkonly: { thinkingLevel: "high" },
 } }));
 const r5 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mode: "gone" });
 eq(
@@ -114,14 +116,15 @@ eq(
 );
 const r6 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mode: "ok" });
 eq("resolve: valid mode applies model + thinking", [r6.model.id, r6.thinkingLevel, r6.applied], ["good", "high", { mode: "ok" }]);
+const r7 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mode: "half" });
+eq(
+	"resolve: mode with half a provider/modelId pair is unresolved",
+	[r7.model.id, r7.thinkingLevel, r7.unresolved],
+	["parent-model", "off", ["mode:half"]],
+);
+const r8 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mode: "thinkonly" });
+eq("resolve: thinking-only mode applies", [r8.model.id, r8.thinkingLevel, r8.applied], ["parent-model", "high", { mode: "thinkonly" }]);
 fs.rmSync(modesCwd, { recursive: true });
-
-// "provider/id:<thinking>" (pi CLI form) resolves; a non-thinking colon suffix
-// stays part of the model id.
-const r7 = await resolveModelAndThinking("/nonexistent-cwd", registry, parent, "off", { model: "anthropic/good:high" });
-eq("resolve: model:thinking suffix applies both", [r7.model.id, r7.thinkingLevel, r7.unresolved], ["good", "high", []]);
-const r8 = await resolveModelAndThinking("/nonexistent-cwd", registry, parent, "off", { model: "anthropic/good:batch" });
-eq("resolve: non-thinking colon suffix is part of the id", [r8.model.id, r8.unresolved], ["parent-model", ["model:anthropic/good:batch"]]);
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

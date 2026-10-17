@@ -154,7 +154,7 @@ export default function (pi: ExtensionAPI) {
 			// The caller LLM only sees this text, not the UI badge: say so when a
 			// requested mode/model was ignored and the subagent ran on a fallback.
 			const fallbackNote = unresolved.length
-				? `⚠ ignored ${unresolved.join(" ")} — ran on ${targetModel.provider}/${targetModel.id} (thinking: ${targetThinkingLevel})\n`
+				? `⚠ ignored ${unresolved.join(" ")} — fell back to ${targetModel.provider}/${targetModel.id}\n`
 				: "";
 			return {
 				content: [{ type: "text", text: `${fallbackNote}${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}` }],
