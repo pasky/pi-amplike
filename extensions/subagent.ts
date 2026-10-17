@@ -76,7 +76,7 @@ export default function (pi: ExtensionAPI) {
 			// running on the parent's model instead is never what the caller asked for.
 			if (unresolved.length) {
 				return {
-					content: [{ type: "text", text: `Not run: could not resolve ${unresolved.join(" ")} (unknown mode, or its model isn't available). See ~/.pi/agent/modes.json.` }],
+					content: [{ type: "text", text: `Not run: could not resolve ${unresolved.join("; ")}.` }],
 					details: { results: [] },
 					isError: true,
 				};

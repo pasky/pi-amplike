@@ -166,7 +166,7 @@ export default function (pi: ExtensionAPI) {
 			);
 
 			if (unresolved.length) {
-				ctx.ui.notify(`/btw: could not resolve ${unresolved.join(" ")} (unknown mode, or its model isn't available).`, "error");
+				ctx.ui.notify(`/btw: could not resolve ${unresolved.join("; ")}.`, "error");
 				return;
 			}
 

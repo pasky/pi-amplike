@@ -64,8 +64,9 @@ export interface ResolvedModeAndThinking {
 	/** The requested overrides that took effect (shown in the UI badge). */
 	applied: { mode?: string; model?: string };
 	/**
-	 * Requested overrides that could not be resolved. model/thinkingLevel then
-	 * hold the parent's values for them; callers must refuse to run rather than
+	 * Requested overrides that could not be resolved, each with the reason
+	 * (e.g. "mode:x (no such mode in modes.json)"). model/thinkingLevel then hold
+	 * the parent's values for them; callers must refuse to run rather than
 	 * silently substitute the parent's model.
 	 */
 	unresolved: string[];
@@ -104,7 +105,14 @@ export async function resolveModelAndThinking(
 			if (spec.thinkingLevel) targetThinkingLevel = spec.thinkingLevel;
 			applied.mode = params.mode;
 		} else {
-			unresolved.push(`mode:${params.mode}`);
+			const why = !spec
+				? "no such mode in modes.json"
+				: !(spec.provider && spec.modelId) && namesModel
+					? "mode needs both provider and modelId"
+					: namesModel
+						? `its model ${spec.provider}/${spec.modelId} isn't available`
+						: "mode sets neither a model nor a thinking level";
+			unresolved.push(`mode:${params.mode} (${why})`);
 		}
 	}
 
@@ -117,7 +125,8 @@ export async function resolveModelAndThinking(
 			targetModel = m;
 			applied.model = params.model;
 		} else {
-			unresolved.push(`model:${params.model}`);
+			const why = slashIdx > 0 ? "not available" : "expected provider/modelId";
+			unresolved.push(`model:${params.model} (${why})`);
 		}
 	}
 

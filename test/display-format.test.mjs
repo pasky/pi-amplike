@@ -66,13 +66,13 @@ const r2 = await resolveModelAndThinking("/nonexistent-cwd", registry, parent, "
 eq(
 	"resolve: unknown model falls back to parent AND is reported unresolved",
 	[r2.model.id, r2.applied, r2.unresolved],
-	["parent-model", {}, ["model:bogus/missing"]],
+	["parent-model", {}, ["model:bogus/missing (not available)"]],
 );
 
 const r3 = await resolveModelAndThinking("/nonexistent-cwd", registry, parent, "off", {
 	model: "no-slash",
 });
-eq("resolve: malformed model spec reported unresolved", [r3.model.id, r3.unresolved], ["parent-model", ["model:no-slash"]]);
+eq("resolve: malformed model spec reported unresolved", [r3.model.id, r3.unresolved], ["parent-model", ["model:no-slash (expected provider/modelId)"]]);
 
 // A mode is looked up in modes.json; with a cwd that has none and no global
 // match, it must NOT be claimed as applied.
@@ -82,7 +82,7 @@ const r4 = await resolveModelAndThinking("/nonexistent-cwd", registry, parent, "
 eq(
 	"resolve: unknown mode reported unresolved",
 	[r4.applied, r4.unresolved],
-	[{}, ["mode:definitely-not-a-real-mode-xyz"]],
+	[{}, ["mode:definitely-not-a-real-mode-xyz (no such mode in modes.json)"]],
 );
 
 // A mode whose model doesn't resolve must not count as applied just because
@@ -102,7 +102,7 @@ const r5 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mo
 eq(
 	"resolve: mode with unresolvable model is unresolved, nothing half-applied",
 	[r5.model.id, r5.thinkingLevel, r5.applied, r5.unresolved],
-	["parent-model", "off", {}, ["mode:gone"]],
+	["parent-model", "off", {}, ["mode:gone (its model bogus/missing isn't available)"]],
 );
 const r6 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mode: "ok" });
 eq("resolve: valid mode applies model + thinking", [r6.model.id, r6.thinkingLevel, r6.applied], ["good", "high", { mode: "ok" }]);
@@ -110,7 +110,7 @@ const r7 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mo
 eq(
 	"resolve: mode with half a provider/modelId pair is unresolved",
 	[r7.model.id, r7.thinkingLevel, r7.unresolved],
-	["parent-model", "off", ["mode:half"]],
+	["parent-model", "off", ["mode:half (mode needs both provider and modelId)"]],
 );
 const r8 = await resolveModelAndThinking(modesCwd, registry, parent, "off", { mode: "thinkonly" });
 eq("resolve: thinking-only mode applies", [r8.model.id, r8.thinkingLevel, r8.applied], ["parent-model", "high", { mode: "thinkonly" }]);

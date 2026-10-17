@@ -22,7 +22,7 @@ import { BorderedLoader, convertToLlm, serializeConversation } from "@earendil-w
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
-import { loadModeSpec } from "./lib/mode-utils.js";
+import { loadModeSpec, resolveModelAndThinking } from "./lib/mode-utils.js";
 
 // Cross-session communication for handoff.
 // When ctx.newSession() replaces the session, the old extension instance is
@@ -230,6 +230,17 @@ async function performHandoff(
 
 	if (!ctx.model) {
 		return "No model selected.";
+	}
+
+	// Refuse up front (before generating the prompt or switching sessions) when
+	// an explicit -mode/-model doesn't resolve: the new session would otherwise
+	// silently keep the parent's model.
+	if (options?.mode || options?.model) {
+		const { unresolved } = await resolveModelAndThinking(
+			ctx.cwd, ctx.modelRegistry, ctx.model, pi.getThinkingLevel(),
+			{ mode: options.mode, model: options.model },
+		);
+		if (unresolved.length) return `Handoff not started: could not resolve ${unresolved.join("; ")}.`;
 	}
 
 	const branch = ctx.sessionManager.getBranch();
@@ -483,6 +494,7 @@ export default function (pi: ExtensionAPI) {
 			const error = await performHandoff(pi, ctx, params.goal, setPendingHandoff, true, hasOptions ? options : undefined);
 			return {
 				content: [{ type: "text", text: error ?? "Handoff initiated. The session will switch after the current turn completes." }],
+				isError: !!error,
 			};
 		},
 
