@@ -45,16 +45,6 @@ eq("badge: blank strings -> undefined", formatAgentBadge({ mode: "  ", model: ""
 eq("badge: mode only", formatAgentBadge({ mode: "deep" }), "deep");
 eq("badge: model only", formatAgentBadge({ model: "anthropic/claude-haiku-4-5" }), "anthropic/claude-haiku-4-5");
 eq("badge: both", formatAgentBadge({ mode: "deep", model: "a/b" }), "deep a/b");
-eq(
-	"badge: unresolved requests flagged as ignored",
-	formatAgentBadge({ unresolved: ["model:bogus/missing"] }),
-	"⚠ ignored model:bogus/missing",
-);
-eq(
-	"badge: applied + ignored coexist",
-	formatAgentBadge({ mode: "deep", unresolved: ["model:bogus/x"] }),
-	"deep ⚠ ignored model:bogus/x",
-);
 eq("badge: newlines flattened", formatAgentBadge({ mode: "de\nep" }), "de ep");
 eq("badge: overlong part truncated", formatAgentBadge({ model: "x".repeat(100) }).length, 40);
 

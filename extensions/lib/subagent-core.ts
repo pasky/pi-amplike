@@ -108,24 +108,18 @@ function sanitizeBadgePart(s: string): string {
 }
 
 /**
- * Build the mode/model badge shown next to a subagent in the UI. `mode`/`model`
- * must be the overrides that ACTUALLY applied (see resolveModelAndThinking's
- * `applied`); `unresolved` requests are shown separately as ignored, so the
- * badge never claims a model the subagent isn't running. Returns undefined when
- * nothing was explicitly requested (so nothing is rendered).
+ * Build the mode/model badge shown next to a subagent in the UI from the
+ * overrides that applied (resolveModelAndThinking's `applied`; callers refuse
+ * to run when anything is unresolved). Returns undefined when nothing was
+ * explicitly requested (so nothing is rendered).
  */
 export function formatAgentBadge(opts: {
 	mode?: string;
 	model?: string;
-	unresolved?: string[];
 }): string | undefined {
 	const parts = [opts.mode, opts.model]
 		.filter((s): s is string => !!s && !!s.trim())
 		.map(sanitizeBadgePart);
-	const ignored = (opts.unresolved ?? [])
-		.filter((s) => !!s && !!s.trim())
-		.map(sanitizeBadgePart);
-	if (ignored.length) parts.push(`⚠ ignored ${ignored.join(" ")}`);
 	return parts.length ? parts.join(" ") : undefined;
 }
 

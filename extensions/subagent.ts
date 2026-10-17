@@ -72,6 +72,16 @@ export default function (pi: ExtensionAPI) {
 				{ mode: params.mode, model: params.model },
 			);
 
+			// An explicitly requested mode/model that doesn't resolve is an error:
+			// running on the parent's model instead is never what the caller asked for.
+			if (unresolved.length) {
+				return {
+					content: [{ type: "text", text: `Not run: could not resolve ${unresolved.join(" ")} (unknown mode, or its model isn't available). See ~/.pi/agent/modes.json.` }],
+					details: { results: [] },
+					isError: true,
+				};
+			}
+
 			if (!targetModel) {
 				return {
 					content: [{ type: "text", text: "No model available." }],
@@ -81,10 +91,7 @@ export default function (pi: ExtensionAPI) {
 
 			const makeDetails = (results: SingleResult[]): SubagentDetails => ({ results });
 
-			// Built from the overrides that ACTUALLY applied (plus any ignored ones),
-			// not the raw request: an unknown mode/model silently falls back to the
-			// parent's model, and a badge echoing the request would misreport that.
-			const agentBadge = formatAgentBadge({ ...applied, unresolved });
+			const agentBadge = formatAgentBadge(applied);
 
 			const allResults: SingleResult[] = params.tasks.map((task) => ({
 				task,
@@ -151,13 +158,8 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			const isError = results.length === 1 ? results[0].exitCode !== 0 : failCount === results.length;
-			// The caller LLM only sees this text, not the UI badge: say so when a
-			// requested mode/model was ignored and the subagent ran on a fallback.
-			const fallbackNote = unresolved.length
-				? `⚠ ignored ${unresolved.join(" ")} — fell back to ${targetModel.provider}/${targetModel.id}\n`
-				: "";
 			return {
-				content: [{ type: "text", text: `${fallbackNote}${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}` }],
+				content: [{ type: "text", text: `${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}` }],
 				details: makeDetails(results),
 				isError,
 			};

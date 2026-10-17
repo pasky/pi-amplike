@@ -165,6 +165,11 @@ export default function (pi: ExtensionAPI) {
 				{ mode: modeOpt, model: modelOpt },
 			);
 
+			if (unresolved.length) {
+				ctx.ui.notify(`/btw: could not resolve ${unresolved.join(" ")} (unknown mode, or its model isn't available).`, "error");
+				return;
+			}
+
 			if (!targetModel) {
 				ctx.ui.notify("No model available.", "error");
 				return;
@@ -187,8 +192,7 @@ export default function (pi: ExtensionAPI) {
 			// Unique widget key per invocation so multiple /btw's don't clobber each other
 			const widgetKey = `btw-${++btwCounter}`;
 
-			// Badge reflects the overrides that actually applied (see subagent.ts).
-			const agentBadge = formatAgentBadge({ ...applied, unresolved });
+			const agentBadge = formatAgentBadge(applied);
 
 			// Show initial status widget
 			const taskPreview = btwTaskPreview(task);

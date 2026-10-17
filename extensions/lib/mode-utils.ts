@@ -61,13 +61,13 @@ export async function loadModeSpec(
 export interface ResolvedModeAndThinking {
 	model: any;
 	thinkingLevel: string;
-	/**
-	 * The requested overrides that actually took effect. Callers surface these in
-	 * the UI: an unknown mode / unavailable model silently falls back to the
-	 * parent's model, so echoing the raw request would be a lie.
-	 */
+	/** The requested overrides that took effect (shown in the UI badge). */
 	applied: { mode?: string; model?: string };
-	/** Requested overrides that could not be resolved and were ignored. */
+	/**
+	 * Requested overrides that could not be resolved. model/thinkingLevel then
+	 * hold the parent's values for them; callers must refuse to run rather than
+	 * silently substitute the parent's model.
+	 */
 	unresolved: string[];
 }
 
